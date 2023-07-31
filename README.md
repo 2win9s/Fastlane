@@ -1,7 +1,7 @@
 # Vanishing-intelligence-Exploding-stupidity
-a silly idea for an artifical neural network architecture
+An "ambitious" idea for an obsolete on arrival artifical neural network architecture
 
-This is a continuation of a futile sci fest entry that I did with friends during TY (that github repo has been privated, the code is hideous).
+This is a continuation of a futile sci fest entry that I did with friends during TY (the github repo for the old project has been privated).
 
 Recurrent neural networks suffer from the vanishing/ exploding gradient problem, that is why LSTM was invented and is used, but why do we need to introduce such a construct? Artificial neural networks are after all universal function approximators can we somehow train a neural network to act as a LSTM unit. Probably nees many more parameters than implementing LSTM but it is could be an interesting endeavour.
 
