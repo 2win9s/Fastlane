@@ -3,7 +3,7 @@ An "ambitious" idea for an obsolete on arrival artifical neural network architec
 
 This is a continuation of a futile sci fest entry that I did with friends during TY (the github repo for the old project has been privated).
 
-Recurrent neural networks suffer from the vanishing/ exploding gradient problem, that is why LSTM was invented and is used, but why do we need to introduce such a construct? Artificial neural networks are after all universal function approximators can we somehow train a neural network to act as a LSTM unit. Probably nees many more parameters than implementing LSTM but it is could be an interesting endeavour.
+Recurrent neural networks suffer from the vanishing/ exploding gradient problem, that is why LSTM was invented and is used, but why do we need to introduce such a construct? Artificial neural networks are after all universal function approximators can we somehow train a neural network to act as a LSTM unit. Probably needs many more parameters than implementing LSTM but it is could be an interesting endeavour.
 
 So for the silly idea, "fast lane". LSTM retains the information by storing it in the cell state and has the values of the cell state regulated by gates. So what if we all some neurons to be "cell states" i.e. the preactivation z of the the neuron at timestep t is equal to the dor product of weights and inputs neuron values plus the previous state and the bias,
 i.e. 
