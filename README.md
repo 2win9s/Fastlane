@@ -11,6 +11,6 @@ i.e.
 z_t = f(z_{t-1}) + b + W \cdot I
 ```
 where f is the activation function, b is the bias for that neuron, W is the slice of the weights matrix corresponding to that neuron and I is the vector of inputs to the neuron.
-It probably is possible to have weights and biases that would allow such a neural network to act as an LSTM, but one look at that equation and you know things are going to explode as t->$\infty$. (perhaps I should experiment with allowing only some neurons to have this property)
+It probably is possible to have weights and biases that would allow such a neural network to act as an LSTM, but one look at that equation and you know things are going to explode as t->$\{infty}$. (perhaps I should experiment with allowing only some neurons to have this property)
 
 To add more fuel to the fire, this won't be an ordinary fully connected network. Instead we the neurons will be defined by an index sequence in ascending order, 
