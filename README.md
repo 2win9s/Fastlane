@@ -8,5 +8,5 @@ Recurrent neural networks suffer from the vanishing/ exploding gradient problem,
 So for the silly idea, "fast lane". LSTM retains the information by storing it in the cell state and has the values of the cell state regulated by gates. So what if we have every neuron be a cell state i.e. the preactivation z of the the neuron at time t is equal to the dor product of weights and inputs neuron values plus the previous state and the bias,
 i.e. 
 ```math
-z_t = f(z_t-1) + b + W \cdot I
+z_t = f(z_{t-1}) + b + W \cdot I
 ```
