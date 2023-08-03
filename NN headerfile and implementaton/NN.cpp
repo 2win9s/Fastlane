@@ -282,11 +282,6 @@ float NN::loss(std::vector<float> & output, std::vector<float> & target, int los
 
 //uses ReLU capped at 7 hardcoded in, I need all the performance I can get, I just need this thing to work for now
 void NN::forward_pass(std::vector<float> &inputs, float a){
-    if(inputs.size() != input_index.size()){
-        std::cout<<"ERROR: invalid vector for input values, wrong size vector";
-        std::exit(EXIT_FAILURE);
-    }  
-
     for (int i = 0; i < input_index.size(); i++)
     {
         neural_net[input_index[i]].output = inputs[i];
@@ -295,16 +290,13 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
     {
         for (int j = 0; j < layermap[i].size(); j++)
         {   
-            if (neural_net[layermap[i][j]].memory)
+            if (neural_net[layermap[i][j]].memory || neural_net[layermap[i][j]].input_neuron)
             {
                 ;
             }
-            else if(neural_net[layermap[i][j]].input_neuron){
-                continue;
-            }
             else{
                 neural_net[layermap[i][j]].output = 0;
-            }
+            } 
             for (int l = 0; l < neural_net[layermap[i][j]].weights.size(); l++)
             {
                 //apologies for the naming scheme
@@ -377,14 +369,15 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
         for(int j = 0; j < target[i].size(); j++){
             neuron_gradient[i][output_index[j]] += forwardpass_states[i][output_index[j]] - target[i][j];
         }
-        for (int j = layermap.size() - 1; j >0 ; j--)
+        for (int j = layermap.size() - 1; j >= 0  ; j--)
         {
             for (int k = 0; k < layermap[j].size(); k++)
             {
-                float dldz = neuron_gradient[i][layermap[j][k]] * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[i][layermap[j][k]],ReLU_leak);
+                float dldz = neuron_gradient[i][layermap[j][k]] 
+                * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[i][layermap[j][k]],ReLU_leak);
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
-                neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]]; //the problem?
+                neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
                 for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
                     if(layermap[j][k] > neural_net[layermap[j][k]].weights[l].index){       //if greater then must be same time step, if less must be previous timestep
@@ -399,10 +392,10 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             }  
         }
     }
-    for(int j = 0; j < target[0].size(); j++){
-        neuron_gradient[0][output_index[j]] += forwardpass_states[0][output_index[j]] - target[0][j];
+    for(int i = 0; i < target[0].size(); i++){
+        neuron_gradient[0][output_index[i]] += forwardpass_states[0][output_index[i]] - target[0][i];
     }
-    for (int j = layermap.size() - 1; j > 0 ; j--)
+    for (int j = layermap.size() - 1; j >= 0 ; j--)
     {
         for (int k = 0; k < layermap[j].size(); k++)
         {
@@ -414,6 +407,9 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                     neuron_gradient[0][neural_net[layermap[j][k]].weights[l].index] += dldz * neural_net[layermap[j][k]].weights[l].value;        
                     weights_gradient[layermap[j][k]][l] += dldz * forwardpass_states[0][neural_net[layermap[j][k]].weights[l].index];
                 }
+                else{
+                    weights_gradient[layermap[j][k]][l] += dldz * forwardpass_states[0][neural_net[layermap[j][k]].weights[l].index];
+                }
             }
         }    
     }
@@ -421,6 +417,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     neuron_gradient.shrink_to_fit();
     for (int i = 0; i < bias_gradient.size(); i++)
     {
+            
         if (std::abs(bias_gradient[i]) > gradient_limit)
         {
             if (bias_gradient[i] > 0){
@@ -429,13 +426,12 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             else{
                 bias_gradient[i] = -gradient_limit;
             }
-        }    
+        }   
         momentumB[i] = momentumB[i] * momentum_param + (bias_gradient[i] * (1 - momentum_param));
         if (neural_net[i].memory)
         {
             continue;
         }
-        
         neural_net[i].bias -= learning_rate * momentumB[i];
     }
     bias_gradient.clear();
@@ -444,6 +440,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     {
         for (int j = 0; j < weights_gradient[i].size(); j++)
         {
+            
             if (std::abs(weights_gradient[i][j]) > gradient_limit)
                 {
                 if (weights_gradient[i][j] > 0)
@@ -745,6 +742,60 @@ NN::NN(std::string file_name)
 
 void NN::sleep(){
 
+}
+
+void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &forwardpass_current, std::vector<float> &target,float learning_rate, float momentum_param,float ReLU_leak){
+    std::vector<float> neuron_gradient(neural_net.size(),0);
+    neuron_gradient.shrink_to_fit();
+    std::vector<std::vector<float>> weights_gradient(neural_net.size());
+    weights_gradient.shrink_to_fit();
+    for (int i = 0; i < weights_gradient.size(); i++)
+    {
+        weights_gradient[i].reserve(neural_net[i].weights.size());
+        weights_gradient[i].resize(neural_net[i].weights.size(),0);
+    }
+    std::vector<float> bias_gradient(neural_net.size(),0);
+    bias_gradient.shrink_to_fit();
+
+    for (int i = 0; i < target.size(); i++)
+    {
+        neuron_gradient[output_index[i]] += forwardpass_current[output_index[i]] - target[i];
+    }
+    for (int i = layermap.size() - 1; i >= 0; i--)
+    {
+        for (int j = 0; j < layermap[i].size(); j++)
+       {
+            for (int k = 0; k < neural_net[layermap[i][j]].weights.size(); k++){
+		        float dldz = neuron_gradient[layermap[i][j]] * neural_net[layermap[i][j]].act_func_derivative(forwardpass_current[layermap[i][j]],ReLU_leak);
+                bias_gradient[layermap[i][j]] += dldz;
+                
+		    if(layermap[i][j] > neural_net[layermap[i][j]].weights[k].index){
+                    weights_gradient[layermap[i][j]][k] += dldz * forwardpass_current[neural_net[layermap[i][j]].weights[k].index];
+                    neuron_gradient[neural_net[layermap[i][j]].weights[k].index] += dldz * neural_net[layermap[i][j]].weights[k].value;
+                }
+                else{   //we truncate the backpropagation here
+                    weights_gradient[layermap[i][j]][k] += dldz * forwardpass_past[neural_net[layermap[i][j]].weights[k].index];
+                }
+            }
+       }    
+    }
+    neuron_gradient.clear();
+    neuron_gradient.shrink_to_fit();
+    for (int i = 0; i < bias_gradient.size(); i++)
+    {
+        momentumB[i] = momentumB[i] * momentum_param + (bias_gradient[i] * (1 - momentum_param));
+        neural_net[i].bias -= learning_rate * momentumB[i];
+    }
+    bias_gradient.clear();
+    bias_gradient.shrink_to_fit();
+    for (int i = 0; i < weights_gradient.size(); i++)
+    {
+        for (int j = 0; j < weights_gradient[i].size(); j++)
+        {
+            momentumW[i][j] = momentumW[i][j] * momentum_param + (weights_gradient[i][j] * (1 - momentum_param));
+            neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
+        }
+    }
 }
 
 
