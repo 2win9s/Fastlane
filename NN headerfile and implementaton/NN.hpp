@@ -82,7 +82,7 @@ struct NN
     void forward_pass(std::vector<float> &inputs, float a = 0);
 
     //back propagation through time, WARNING I'm a terrible programmer and this is probably a huge memory hog
-    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 10000);
+    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 1000);
     void l1_reg(int h_param);
     void l2_reg(int w_decay);
     
