@@ -64,7 +64,8 @@ void NN::layermap_sync()
 {
     layermap.clear();
     //std::vector<bool> index_label(neural_net.size(),true);          
-    bool index_label[neural_net.size()] = {};                   //this is to help label the neurons (not included yet in layermap = true)
+    //this is to help label the neurons (not included yet in layermap = true)
+    bool* index_label = new bool[neural_net.size()]; 
     for (int i = 0; i < neural_net.size(); i++)
     {
         index_label[i] = true;
@@ -111,10 +112,12 @@ void NN::layermap_sync()
             }
             if (i == (neural_net.size() - 1))                       //if all neurons are now in layermap the function has completed
             {
+                delete[] index_label;
                 return;
             }       
         }
     }
+    delete[] index_label;
 }
 
 //potentially variance is too large, perhaps have the variance of the weights as an adjustable hyper parameter, I'm not proficient enough at multivariable calc adn linear algebra so IDK how to derive anything suitable
@@ -189,10 +192,10 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
             //if it is a memory neuron to stop things exploding its input weights will all initially be zero, the other weights will break the symmetry, surely?
             if (neural_net[i].memory)
             {
-                neural_net[i].weights[j].value = 0;
+                neural_net[i].weights[j].value = weight_init_dist(twister);
             }
             else{
-                neural_net[i].weights[j].value = weight_init_dist(twister) * multiplier;
+                neural_net[i].weights[j].value = weight_init_dist(twister) /* multiplier*/;
             }
         } 
     }
@@ -268,11 +271,11 @@ float NN::loss(std::vector<float> & output, std::vector<float> & target, int los
     switch (loss_f)
     {
     default:    //Mean squared error as default
-        float MSE;
+        float MSE = 0;
         for (int i = 0; i < output.size(); i++)
         {
             float error = output[i] - target[i];
-            MSE += error * error;
+            MSE += (error * error);
         }
         MSE = MSE/output.size();
         return MSE;
@@ -292,7 +295,7 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
         {   
             if (neural_net[layermap[i][j]].memory || neural_net[layermap[i][j]].input_neuron)
             {
-                ;
+                neural_net[layermap[i][j]].output = neural_net[layermap[i][j]].output;
             }
             else{
                 neural_net[layermap[i][j]].output = 0;
@@ -377,7 +380,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                 * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[i][layermap[j][k]],ReLU_leak);
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
-                neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
+                //neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
                 for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
                     if(layermap[j][k] > neural_net[layermap[j][k]].weights[l].index){       //if greater then must be same time step, if less must be previous timestep
@@ -428,7 +431,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             }
         }   
         momentumB[i] = momentumB[i] * momentum_param + (bias_gradient[i] * (1 - momentum_param));
-        if (neural_net[i].memory)
+        if (neural_net[i].memory || neural_net[i].input_neuron)
         {
             continue;
         }
@@ -490,7 +493,7 @@ void NN::new_weights(int m_new_weights){
     std::uniform_int_distribution<int> dist_to(0, neural_net.size() -1); 
     std::uniform_int_distribution<int> dist_from(0, neural_net.size() -2);
     float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
-    int new_weights[neural_net.size()] = {0};
+    int* new_weights = new int[neural_net.size()];
     momentum_clear();
     for (int i = 0; i < neural_net.size(); i++)
     {
@@ -528,6 +531,7 @@ void NN::new_weights(int m_new_weights){
             }
         }
     }
+    delete[] new_weights;
     layermap_sync();
 }
 
@@ -797,6 +801,7 @@ void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &
         }
     }
 }
+
 
 
 
