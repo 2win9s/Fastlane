@@ -91,5 +91,12 @@ struct NN
     void prune_weights(float weights_cutoff);
 
     void sleep();
-    
+    void backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &forwardpass_current, std::vector<float> &target,float learning_rate, float momentum_param = 0.9, float ReLU_leak = 0);
+
 };
+
+
+
+
+
+
