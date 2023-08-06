@@ -45,7 +45,9 @@ struct NN
     std::vector<int> memory_index;          //indexing recording the neurons that add on their previous state
     
     std::vector<std::vector<float>> momentumW;
-    std::vector<float> momentumB;    
+    std::vector<float> momentumB;  
+    std::vector<std::vector<float>> weights_gradient;
+    std::vector<float> bias_gradient;   
     
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
     
@@ -75,18 +77,23 @@ struct NN
 
     void neural_net_clear();
     void momentum_clear();
+    void gradient_clear();
     
     //activation of neuron at index n
     void neuron_activation(int n, float a = 0);
     float loss(std::vector<float> & output, std::vector<float> & target, int loss_f);
     void forward_pass(std::vector<float> &inputs, float a = 0);
 
-    //back propagation through time, WARNING I'm a terrible programmer and this is probably a huge memory hog
-    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 1000);
-    void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 5);
+    //back propgation through time, no weight updates, only gradient
+    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 5);
+    
+    //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
+    void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 1000);
+    void update_momentum(float momentum = 0.9);
+    void update_parameters(float learning_rate);
     void l1_reg(float h_param);
     void l2_reg(float w_decay);
-    
+    void weight_noise(float sigma);
 
     void new_weights(int n_new_weights);
     void prune_weights(float weights_cutoff);
