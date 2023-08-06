@@ -1,5 +1,9 @@
-/*Getting this artificial ner
-
+/*Getting this thing to converge abnd gett the loss down was painfully difficult, as you can see I hvae implemented many things to try 
+and coerce it out of local minima, I even had to resort to a randomly changing the weights at some points but in the end we ended up with
+something that works, but it has 300+ parameters just to record 1 number...
+so the input neurons are {0,1,2}, the output neuron is {21} and the "memory" neuron is {11}
+when the input is {x,1,0}, the neural net remembers x and the output will be x when the input is {0,2,0}
+to forget the number x set the input to {0,0,6} before {y,1,0} is given as input to forget x and then record y*/
 
 
 #include"NN.hpp"
@@ -12,10 +16,10 @@
 
 std::random_device rd;                          
 std::mt19937 mtwister(rd());
-std::uniform_real_distribution<float> rand06(0,6);      //the neural net is using ReLU capped at 7 as the activation function for all neurons, so this range is to ensure it can be expressed
+std::uniform_real_distribution<float> rand06(0,6);      //the neural net is using ReLU capped at 6 as the activation function for all neurons, so this range is to ensure it can be expressed
 
 //the name of the neural network is hopeless, just like its architecture
-NN hopeless("echo2.txt"); //inputs {0,1], output{20}
+NN hopeless("echo.txt"); 
 
 
 void parameter_check(){
@@ -76,6 +80,8 @@ float iteration(int record_timestep, int recall_timestep,bool print = false){
     std::vector<float> inputs(3,0);
     std::vector<float> target(1,0);
     std::vector<float> output(1,0);
+    std::uniform_int_distribution<int> randint10(0,10);
+    int forget_timestep = randint10(mtwister);
     for (int i = 0; i < recall_timestep; i++)
     {
         if (i == record_timestep - 1)
@@ -85,7 +91,7 @@ float iteration(int record_timestep, int recall_timestep,bool print = false){
             target[0] = inputs[0];
             inputs[2] = 0;
         }
-        else if (i == record_timestep - 2)
+        else if (i == record_timestep - 2 - forget_timestep)
         {
             inputs[0] = 0;
             inputs[1] = 0;                      
@@ -116,6 +122,8 @@ float iteration(int record_timestep, int recall_timestep,bool print = false){
 
 void tr_iteration(int record_timestep, int recall_timestep, float a, float re_leak){
     std::vector<float> inputs(3,0);
+    std::uniform_int_distribution<int> randint10(0,10);
+    int forget_timestep = randint10(mtwister);
     std::vector<std::vector<float>> target(recall_timestep);
     std::vector<std::vector<float>> forwardpass_states(recall_timestep);
     std::vector<std::vector<float>> dl(recall_timestep);
@@ -141,7 +149,7 @@ void tr_iteration(int record_timestep, int recall_timestep, float a, float re_le
             target[recall_timestep - 1][0] = inputs[0];
             inputs[2] = 0; 
         }
-        else if (i == record_timestep - 2)
+        else if (i == record_timestep - 2 - forget_timestep)
         {
             inputs[0] = 0;
             inputs[1] = 0;                      
@@ -170,7 +178,7 @@ void tr_iteration(int record_timestep, int recall_timestep, float a, float re_le
             dl[i][0] += (forwardpass_states[i][hopeless.output_index[0]] - target[i][0]) * 4;  
         } 
     }  
-    hopeless.bptt(forwardpass_states,dl);
+    hopeless.bptt(forwardpass_states,dl,0,1);
 }
 
 void bias_reg(float param){
@@ -269,7 +277,7 @@ void prune_lowest(){
 
 int main(){
     int timestep_gap;
-    std::uniform_int_distribution<int> re_tsp_dist(3,10);
+    std::uniform_int_distribution<int> re_tsp_dist(12,20);
     int cycles;
     float learning_rate;
     float a = 0;
@@ -290,14 +298,14 @@ int main(){
         int recordtimestp = re_tsp_dist(mtwister);
         int recalltimestp = recordtimestp + rtimestep(mtwister);    
         tr_iteration(recordtimestp,recalltimestp,a,re_leak);
-        if ((i < cycles/2 )&& (i % 100 == 50))
+        /*if ((i < cycles/2 )&& (i % 100 == 50))
         {
             hopeless.l1_reg(0.00001);
-        }
+        }*/
         
-        if (true)
+        if (i % 100==99)
         {
-            if (i == 0)
+            if (i == 99)
             {
                 for (int j = 0; j < hopeless.bias_gradient.size(); j++)
                 {
