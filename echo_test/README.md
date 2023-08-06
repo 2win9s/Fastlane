@@ -10,4 +10,7 @@ its previous state is indexed at 11. When the input is {x,1,0} the network will 
 
 
 
-The neural net is serialised as the .txt file and must be present for anything to work.
+The neural net is serialised as the .txt file and must be present for anything to work. Don't forget to compile (if you want) with the headerfile and implentation, NN.cpp and NN.hpp
+
+
+None of the code is parallelised because it is pointless for me at least, I don't excatly have the processing power to do so If I wish to use my laptop for anything else in the meantime.
