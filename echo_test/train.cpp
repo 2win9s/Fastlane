@@ -104,9 +104,13 @@ float iteration(int record_timestep, int recall_timestep,bool print = false){
             inputs[2] = 0;
         }
         else{
-            std::fill(inputs.begin(),inputs.end(),0);
+            inputs[0] = rand06(mtwister);
+            inputs[1] = 0;
+            inputs[2] = 0;
+
         }
         hopeless.forward_pass(inputs);
+        std::cout<<hopeless.neural_net[hopeless.output_index[0]].output<<std::endl;
     }
     output[0] = hopeless.neural_net[hopeless.output_index[0]].output;
     loss = hopeless.loss(output,target,0);
@@ -163,7 +167,9 @@ void tr_iteration(int record_timestep, int recall_timestep, float a, float re_le
         }
         else
         {
-            std::fill(inputs.begin(),inputs.end(),0);
+            inputs[0] = rand06(mtwister);
+            inputs[1] = 0;
+            inputs[2] = 0;
         }
         hopeless.forward_pass(inputs,a);
         for (int j = 0; j < hopeless.neural_net.size(); j++)
