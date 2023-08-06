@@ -101,4 +101,8 @@ int main(){
     
     float loss = avg_loss(re_tsp_dist,timestep_gap);
     std::cout<<"average loss over 10000 iterations "<<loss<<std::endl;
+    std::cout<<"Hit ENTER to close"<<std::endl;
+    std::cin.sync(); 
+    std::cin.get();
+    return 0;
 }
