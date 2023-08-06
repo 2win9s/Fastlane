@@ -1,5 +1,5 @@
 # Vanishing-intelligence-Exploding-stupidity
-An "ambitious" idea for an obsolete on arrival artifical neural network architecture
+A kind of echo state network, but I'm foolishly passing gradients through.
 
 This is a continuation of a futile sci-fest entry that I did with friends during TY (the github repo for the old project has been privated, this is a complete fresh re-write + a few new ideas).
 
