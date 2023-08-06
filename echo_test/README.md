@@ -1,4 +1,5 @@
 # ECHO 
+Very inefficient long term memory
 
 A 300+ parameter model that has been trained to be able to record recall and forget a floating point integer with decent accuracy over arbitrary? timesteps(only tested across 10000).
 No gates or LSTM needed, just many more parameters, and countless hours of lost sanity trying to train it.
