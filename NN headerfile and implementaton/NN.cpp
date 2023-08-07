@@ -1,4 +1,5 @@
 #include<vector>
+#include<set>
 #include<cmath>
 #include<iostream>
 #include<cstdlib>
@@ -8,7 +9,7 @@
 #include<limits>
 #include<iomanip>
 #include<algorithm>
-
+#include <filesystem>
 
 #include"NN.hpp"
 
@@ -31,20 +32,16 @@ NN::neuron::neuron(float init_val, float init_bias, std::vector<index_value_pair
     ,memory(false)
     ,input_neuron(false)
 {
-        if(act_func == "ReLU"){
+        if(act_func == "ReLU6"){
             activation_function_v = 1;
-        }
-        else if (act_func == "leaky ReLU")
-        {
-           activation_function_v = 2;
         }
         else if (act_func == "GELU")
         {
-            activation_function_v = 3;
+            activation_function_v = 0;
         }
         else{
-            std::cout<<"invalid string for activation function, please input \"ReLU\", \"leaky ReLU\" or, \"GELU\" only";
-            std::cout<<"note no spaces allowed";
+            std::cout<<"invalid string for activation function, please input \"ReLU6\" or, \"GELU\" only";
+            std::cout<<" note no spaces allowed";
             std::exit(EXIT_FAILURE);
         }
 }
@@ -60,27 +57,78 @@ bool NN::neuron::isnt_input(int neuron_index){
     return true;
 }
 
+inline bool contain_int(std::vector<int> &vec, int x){
+    for (int i = 0; i < vec.size(); i++)
+    {
+        if (vec[i] == x)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 void NN::layermap_sync()
 {
     layermap.clear();
+    std::vector<std::set<int>> dependency;
+    dependency.reserve(neural_net.size());
+    dependency.resize(neural_net.size());
     //std::vector<bool> index_label(neural_net.size(),true);          
     //this is to help label the neurons (not included yet in layermap = true)
     bool* index_label = new bool[neural_net.size()]; 
+    std::vector<std::vector<int>> input_tree(neural_net.size());
     for (int i = 0; i < neural_net.size(); i++)
     {
         index_label[i] = true;
     }
-    
+    /*
+    for (int i = 0; i < input_tree.size(); i++)
+    {
+        for (int j = 0; j < neural_net[i].weights.size(); j++)
+        {
+            if (i < neural_net[i].weights[j].index){;}
+            else{input_tree[i].emplace_back(neural_net[i].weights[j].index);}
+        }
+        std::set<int> set(input_tree[i].begin(),input_tree[i].end());        
+        for (int j = 0; j < input_tree[i].size(); j++)
+        {
+            for (int k = 0; k < input_tree[input_tree[i][j]].size(); k++)
+            {
+                set.insert(input_tree[input_tree[i][j]][k]);
+            }
+        } 
+    } */
+    for (int i = 0; i < dependency.size(); i++)
+    {
+        std::vector<int> w;
+        w.reserve(neural_net[i].weights.size());
+        for (int j = 0; j < neural_net[i].weights.size(); j++)
+        {
+            if (i > neural_net[i].weights[j].index){w.emplace_back(neural_net[i].weights[j].index);}
+        }
+        for (int j = 0; j < w.size(); j++)
+        {
+            dependency[i].insert(w[j]);
+            dependency[i].insert(dependency[w[j]].begin(),dependency[w[j]].end());  //set union may be faster test for use case
+            //std::set<int> un;
+            //std::set_union(dependency[i].begin(),dependency[i].end(),dependency[w[j]].begin(),dependency[w[j]].end(), std::inserter(un,un.end()));
+            //dependency[i] = un;
+        }
+        //std::cout<<dependency[i].size()<<std::endl;
+    }
+    //std::cout<<std::endl;
+
     std::vector<int> layermap_layer_candidate;
     int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
     int mapped_n = 0;
-    int counter = 0;
-    for(long limit = 0; limit < 214748364; limit++)         //avoiding problems with infinite while loops even if there is a bug
-    {                                                       //for most practical intents and purposes this is a while loop
+    while(true)                                 
+    {                                                       
         layermap_layer_candidate.clear();
         layermap_layer_candidate.reserve(neural_net.size() - mapped_n);
         for (int i = initial_neuron; i < neural_net.size(); i++)
-        {   if(index_label[i] && (neural_net[i].isnt_input(initial_neuron)))
+        {   
+            if(index_label[i] && (dependency[i].count(initial_neuron) == 0))
             {
                 layermap_layer_candidate.emplace_back(i);
             }
@@ -89,9 +137,8 @@ void NN::layermap_sync()
         {
             for (int j = i; j < layermap_layer_candidate.size(); j++)                   //getting rid of the neurons that have the neuron at i index as input
             {
-                counter++;
                 //remove neurons of higher index that contain some connection to other neurons in the layer 
-                if((!neural_net[layermap_layer_candidate[j]].isnt_input(layermap_layer_candidate[i]))||(!neural_net[layermap_layer_candidate[i]].isnt_input(layermap_layer_candidate[j]))) //if it is an input, double negation
+                if(dependency[layermap_layer_candidate[j]].count(layermap_layer_candidate[i]) || (!neural_net[layermap_layer_candidate[i]].isnt_input(layermap_layer_candidate[j]))) //if it is an input, double negation
                 {
                     layermap_layer_candidate.erase(layermap_layer_candidate.begin() + j);
                     j--;                                                                //as the for loop will execute j++ and the element at index j just got removed, the new element at index j is the old one at j+1
@@ -102,6 +149,7 @@ void NN::layermap_sync()
         for (int i = 0; i < layermap_layer_candidate.size(); i++)
         {
             index_label[layermap_layer_candidate[i]] = false;
+            //input_tree[layermap_layer_candidate[i]].clear();
         }
         layermap.emplace_back(layermap_layer_candidate);            //adding a new layer
         for (int i = initial_neuron; i < neural_net.size(); i++)
@@ -129,7 +177,7 @@ float NN::He_initialisation(int n, float a){
 
 //constructor for neural net struct
 NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, std::vector<int> memory_neurons, float connection_density, float connection_sd)
-    :neural_net(size,neuron(0,0,{},"ReLU"))
+    :neural_net(size,neuron(0,0,{},"ReLU6"))
     ,momentumW(size)
     ,momentumB(size,0)
     ,input_index(input_neurons)
@@ -268,6 +316,9 @@ void NN::neuron::activation_function(float a){
         output = (output > 7) ? 7:output;
         output = (output > 0) ? output:a * output;
         break;
+    case 2:
+        output = output;    //linear y = x
+        break;
     default:
         output = (output > 0) ? output:a * output;
         break;
@@ -358,6 +409,8 @@ float NN::neuron::act_func_derivative(float x, float a){
         case 1:
             return (dReLU6(x,a));
             break;
+        case 2:
+            return 1;       //linear do nothing, this is for a potential softmax implementation for the output neuron
         default:
             return (dReLU(x,a));
             break;
@@ -460,12 +513,18 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
 }
 
 //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
-void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param, float ReLU_leak, float gradient_limit)
+void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param, float ReLU_leak, float gradient_limit,std::vector<bool> freeze_neuron)
 {
     float sqrt_glimit = std::sqrt(gradient_limit);      //as a way of making the the modified softsign less punishing on smaller gradients/ amplifies them
     float softsign_multiplier = 1/sqrt_glimit;
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
     neuron_gradient.shrink_to_fit();
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
+    
     for (int i = 0; i < neuron_gradient.size(); i++)
     {
         neuron_gradient[i].reserve(neural_net.size());
@@ -535,6 +594,10 @@ void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_sta
     neuron_gradient.shrink_to_fit();
     for (int i = 0; i < bias_gradient.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
         float soft_sign_grad = sqrt_glimit * bias_gradient[i] / ((std::abs(bias_gradient[i]) * softsign_multiplier) + 1);
         //NaN and inf are different need to check for both  DO NOT BREAK IEE754 I REPEAT DO NOT BREAK IEEE754 
         if ((std::isnan(soft_sign_grad)) || (std::isinf(soft_sign_grad)))       //if (practically) infinity gradient will converge to limit no need to feed through softsign
@@ -555,6 +618,10 @@ void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_sta
     bias_gradient.shrink_to_fit();
     for (int i = 0; i < weights_gradient.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
         for (int j = 0; j < weights_gradient[i].size(); j++)
         {
             float soft_sign_grad = sqrt_glimit *  weights_gradient[i][j] / ((std::abs(weights_gradient[i][j]) * softsign_multiplier) + 1);
@@ -588,13 +655,27 @@ void NN::update_momentum(float momentum){
 }
 
 
-void NN::update_parameters(float learning_rate){
+void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
+    
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
         neural_net[i].bias -= learning_rate * momentumB[i];
     }
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
@@ -604,9 +685,19 @@ void NN::update_parameters(float learning_rate){
 }
 
 //weights = weights - h_param * signof(weights)
-void NN::l1_reg(float h_param){
+void NN::l1_reg(float h_param, std::vector<bool> freeze_neuron){
+    if(freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             neural_net[i].weights[j].value -= h_param * neural_net[i].weights[j].value; 
@@ -617,9 +708,19 @@ void NN::l1_reg(float h_param){
 }
 
 //weights -= weights * w_decay
-void NN::l2_reg(float w_decay){
+void NN::l2_reg(float w_decay, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             neural_net[i].weights[j].value -= neural_net[i].weights[j].value * w_decay;
@@ -629,10 +730,20 @@ void NN::l2_reg(float w_decay){
     
 }
 
-void NN::weight_noise(float sigma){
+void NN::weight_noise(float sigma, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
     std::normal_distribution<float> noise(0,sigma);
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             neural_net[i].weights[j].value += noise(twister);
@@ -644,7 +755,12 @@ void NN::weight_noise(float sigma){
 
 
 //the new weights will be initialised to 0, also resets momentum to 0
-void NN::new_weights(int m_new_weights){
+void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
     std::uniform_int_distribution<int> dist_to(0, neural_net.size() -1); 
     std::uniform_int_distribution<int> dist_from(0, neural_net.size() -2);
     //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
@@ -657,6 +773,11 @@ void NN::new_weights(int m_new_weights){
 
     for (int i = 0; i < m_new_weights; i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        
         int index_to = dist_to(twister);
         if (neural_net[index_to].input_neuron)
         {   
@@ -668,6 +789,11 @@ void NN::new_weights(int m_new_weights){
     
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        
         neural_net[i].weights.reserve(neural_net[i].weights.size() + new_weights[i]);
         momentumW[i].reserve(neural_net[i].weights.size() + new_weights[i]);
         for (int j = 0; j < new_weights[i]; j++)
@@ -692,9 +818,18 @@ void NN::new_weights(int m_new_weights){
 }
 
 //if below weights_cutoff, weights are removed, also reset momentum to 0 
-void NN::prune_weights(float weights_cutoff){
+void NN::prune_weights(float weights_cutoff, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
     for (int i = 0; i < neural_net.size(); i++)
     {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             if(std::abs(neural_net[i].weights[j].value) < weights_cutoff){
@@ -774,6 +909,11 @@ void NN::save(std::string file_name){
     file.close();
 }
 
+bool good_file(std::string file_name){
+    std::ifstream file(file_name);
+    return file.good();
+}
+
 NN::NN(std::string file_name)
     :neural_net()
     ,momentumW()
@@ -785,10 +925,12 @@ NN::NN(std::string file_name)
     std::string str_data;
     std::vector<int> output_in;
     std::vector<int> input_in;
+    if (std::filesystem::exists(file_name)){;}
+    else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
     std::ifstream file(file_name);
     file >> str_data;
     file >> str_data;
-    neural_net.resize(std::stoi(str_data),neuron(0,0,{},"ReLU"));
+    neural_net.resize(std::stoi(str_data),neuron(0,0,{},"ReLU6"));
     file >> str_data;
     while (true)
     {
@@ -960,5 +1102,6 @@ void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &
         }
     }
 }
+
 
 
