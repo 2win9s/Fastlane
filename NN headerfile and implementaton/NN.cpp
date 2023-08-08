@@ -183,8 +183,7 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
     ,input_index(input_neurons)
     ,output_index(output_neurons)
     ,memory_index(memory_neurons)
-{
-    std::cout<<"creating neural net"<< "\n";                                //rng using the standard library's mersenne twister
+{                         //rng using the standard library's mersenne twister
     std::normal_distribution<float> connection_dist(connection_density, connection_sd);
     std::uniform_int_distribution<int> rand_neuron(0,size - 2);     //uniform distribution to pick a random neuron excluding the index of current neuron
     for (int i = 0; i < input_index.size(); i++)
@@ -230,8 +229,8 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
             }
         }
     }
-    weights_gradient = momentumW;
-    bias_gradient = momentumB;
+    weights_g = momentumW;
+    bias_g = momentumB;
     layermap_sync();
     float multiplier = 1/std::sqrt(layermap.size()) * 1/size;       //I don't fully understand Fixup and how to scale skip connections, hopefully this is adequate
     for (int i = 0; i < size; i++)
@@ -243,7 +242,7 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
             //if it is a memory neuron to stop things exploding its input weights will all initially be zero, the other weights will break the symmetry, surely?
             if (neural_net[i].memory)
             {
-                neural_net[i].weights[j].value = weight_init_dist(twister);
+                neural_net[i].weights[j].value = 0;
             }
             else{
                 neural_net[i].weights[j].value = weight_init_dist(twister) /* multiplier*/;
@@ -252,16 +251,16 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
     }
 }
 
-/*
-NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons)
-    :neural_net(size,neuron(0,0,{},"ReLU"))
-    ,momentumW(size)
-    ,momentumB(size,0)
-    ,input_index(input_neurons)
-    ,output_index(output_neurons)
+
+NN::NN()
+    :neural_net(0,neuron(0,0,{},"ReLU6"))
+    ,momentumW(0)
+    ,momentumB(0,0)
+    ,input_index(0)
+    ,output_index(0)
 {
 
-}*/
+}
 
 void NN::neural_net_clear(){
     for (int i = 0; i < neural_net.size(); i++)
@@ -283,15 +282,15 @@ void NN::momentum_clear(){
 }
 
 void NN::gradient_clear(){
-    for (int i = 0; i < bias_gradient.size(); i++)
+    for (int i = 0; i < bias_g.size(); i++)
     {
-        bias_gradient[i] =0;
+        bias_g[i] =0;
     }
     
-    for (int i = 0; i < weights_gradient.size(); i++)
+    for (int i = 0; i < weights_g.size(); i++)
     {
-        for(int j = 0; j< weights_gradient[i].size(); j++){
-            weights_gradient[i][j] = 0;
+        for(int j = 0; j< weights_g[i].size(); j++){
+            weights_g[i][j] = 0;
         }
     }
     
@@ -313,7 +312,7 @@ void NN::neuron::activation_function(float a){
         break;
     case 1:
         //ReLU6, capping the ReLU output at 6
-        output = (output > 7) ? 7:output;
+        output = (output > 6) ? 6:output;
         output = (output > 0) ? output:a * output;
         break;
     case 2:
@@ -395,7 +394,7 @@ inline float dReLU(float x, float a){
 }
 
 inline float dReLU6(float x, float a){
-    x = (x >= 7) ? a:1;
+    x = (x >= 6) ? a:1;
     x = (x <= 0) ? a:1;
     return x;
 }
@@ -420,6 +419,15 @@ float NN::neuron::act_func_derivative(float x, float a){
 //back propgation through time, no weight updates, only gradient
 void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
+    std::vector<std::vector<float>> weights_gradient(neural_net.size());
+    weights_gradient.shrink_to_fit();
+    for (int i = 0; i < weights_gradient.size(); i++)
+    {
+        weights_gradient[i].reserve(neural_net[i].weights.size());
+        weights_gradient[i].resize(neural_net[i].weights.size(),0);
+    }
+    std::vector<float> bias_gradient(neural_net.size(),0);
+    bias_gradient.shrink_to_fit();
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
     neuron_gradient.shrink_to_fit();
     for (int i = 0; i < neuron_gradient.size(); i++)
@@ -490,6 +498,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             else{
                 bias_gradient[i] = -gradient_limit;
             }
+            bias_g[i] += bias_gradient[i];
         }   
     }
     for (int i = 0; i < weights_gradient.size(); i++)
@@ -506,7 +515,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                 else{
                     weights_gradient[i][j] = -gradient_limit;
                 }
-                    
+                weights_g[i][j] += weights_gradient[i][j];    
             }
         }
     }
@@ -515,6 +524,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
 //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
 void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param, float ReLU_leak, float gradient_limit,std::vector<bool> freeze_neuron)
 {
+    
     float sqrt_glimit = std::sqrt(gradient_limit);      //as a way of making the the modified softsign less punishing on smaller gradients/ amplifies them
     float softsign_multiplier = 1/sqrt_glimit;
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
@@ -641,13 +651,13 @@ void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_sta
 void NN::update_momentum(float momentum){
     for (int i = 0; i < momentumB.size(); i++)
     {
-        momentumB[i] = momentumB[i] * momentum + (bias_gradient[i] * (1 - momentum));
+        momentumB[i] = momentumB[i] * momentum + (bias_g[i] * (1 - momentum));
     }
     for (int i = 0; i < momentumW.size(); i++)
     {
         for (int j = 0; j < momentumW[i].size(); j++)
         {
-            momentumW[i][j] = momentumW[i][j] * momentum + (bias_gradient[i] * (1 - momentum));
+            momentumW[i][j] = momentumW[i][j] * momentum + (weights_g[i][j] * (1 - momentum));
         }
         
     }
@@ -808,7 +818,7 @@ void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
             {
                 neural_net[i].weights.emplace_back(index_from,0);
                 momentumW[i].emplace_back(0);
-                weights_gradient[i].emplace_back(0);
+                weights_g[i].emplace_back(0);
             }
         }
     }
@@ -835,7 +845,7 @@ void NN::prune_weights(float weights_cutoff, std::vector<bool> freeze_neuron){
             if(std::abs(neural_net[i].weights[j].value) < weights_cutoff){
                 neural_net[i].weights.erase(neural_net[i].weights.begin() + j);
                 momentumW[i].pop_back();
-                weights_gradient[i].pop_back();
+                weights_g[i].pop_back();
                 j--;
             }       
         }      
@@ -1041,8 +1051,8 @@ NN::NN(std::string file_name)
         momentumW[i].reserve(neural_net[i].weights.size());
         momentumW[i].resize(neural_net[i].weights.size(),0);
     }
-    bias_gradient = momentumB;
-    weights_gradient = momentumW;
+    bias_g = momentumB;
+    weights_g = momentumW;
 }
 
 void NN::sleep(){
@@ -1102,6 +1112,4 @@ void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &
         }
     }
 }
-
-
 

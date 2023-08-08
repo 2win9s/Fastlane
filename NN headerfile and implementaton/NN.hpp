@@ -4,6 +4,7 @@
 
 #include<vector>
 #include<string>
+#include<set>
 
 float GELU(float pre_activation);
 float dGELU(float x);
@@ -46,11 +47,12 @@ struct NN
     
     std::vector<std::vector<float>> momentumW;
     std::vector<float> momentumB;  
-    std::vector<std::vector<float>> weights_gradient;
-    std::vector<float> bias_gradient;   
+    std::vector<std::vector<float>> weights_g;
+    std::vector<float> bias_g;   
     
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
-    
+    //only for forward
+
     void layermap_sync();    //this is to create/ update the layermap, this will be called an run after initialisation, regularisation and adding more weights
     
     //dunno if it works for this, no idea how to derive one
@@ -67,8 +69,8 @@ struct NN
     */
     NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, std::vector<int> memory_neurons, float connection_density, float connection_sd);
     //NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons);
-    NN() = delete;      //no default constructor with no arguements, is this bad practice?
-    
+    //NN() = delete;      //no default constructor with no arguements, is this bad practice?
+    NN();
     //will initialise from data in file_name
     NN(std::string file_name);
     //will save object to text file
@@ -81,27 +83,35 @@ struct NN
     
     //activation of neuron at index n
     void neuron_activation(int n, float a = 0);
-    float loss(std::vector<float> & output, std::vector<float> & target, int loss_f);
+    float loss(std::vector<float> & output, std::vector<float> & target, int loss_f = 0);
     void forward_pass(std::vector<float> &inputs, float a = 0);
 
     //back propgation through time, no weight updates, only gradient
-    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 5);
+    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
     
     //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
-    void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 1000);
+    void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 5, std::vector<bool> freeze_neuron = {});
     void update_momentum(float momentum = 0.9);
-    void update_parameters(float learning_rate);
-    void l1_reg(float h_param);
-    void l2_reg(float w_decay);
-    void weight_noise(float sigma);
+    void update_parameters(float learning_rate, std::vector<bool> freeze_neuron = {});
+    void l1_reg(float h_param, std::vector<bool> freeze_neuron = {});
+    void l2_reg(float w_decay, std::vector<bool> freeze_neuron = {});
+    void weight_noise(float sigma, std::vector<bool> freeze_neuron ={});
 
-    void new_weights(int n_new_weights);
-    void prune_weights(float weights_cutoff);
+    void new_weights(int n_new_weights, std::vector<bool> freeze_neuron ={});
+    void prune_weights(float weights_cutoff, std::vector<bool> freeze_neuron = {});
 
     void sleep();
     void backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &forwardpass_current, std::vector<float> &target,float learning_rate, float momentum_param = 0.9, float ReLU_leak = 0);
 
 };
+
+
+
+
+
+
+
+
 
 
 
