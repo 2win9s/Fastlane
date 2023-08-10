@@ -1,12 +1,12 @@
 # An unique artificial neural nework architecture from scratch
-Has similiarities with echo state network or IndRNN, but dumber.
+Has similiarities with echo state network and IndRNN.
 
 This is a continuation of a futile sci-fest entry that I did with friends during TY (the github repo for the old project has been privated, this is a complete fresh re-write + a few new ideas).
 
-Recurrent neural networks suffer from the vanishing/ exploding gradient problem, that is why LSTM was invented and is used, but why do we need to introduce such a construct? Artificial neural networks are after all universal function approximators can we somehow train a neural network to act as a LSTM unit. Probably needs many more parameters than implementing LSTM and is more computationally wasteful but it is could be an interesting endeavour.
+Recurrent neural networks suffer from the vanishing/ exploding gradient problem, that is why LSTM was invented and used (though many current state of the art models use attention (transformers)), but why do we need to introduce such a construct? Artificial neural networks are after all universal function approximators. Can we somehow train a neural network to act as a LSTM unit? Probably needs many more parameters than implementing LSTM and is more computationally wasteful but it is could be an interesting endeavour.
 
 So for the silly idea, "fast lane". 
-LSTM retains the information by storing it in the cell state and has the values of the cell state regulated by gates. So what if we all some neurons to be "cell states" i.e. the preactivation z of the the neuron at timestep t is equal to the dot product of weights and state of input neuron (which can be the state at the current timestep or past timestep) plus the previous state,
+LSTM retains the information by storing it in the cell state and has the values of the cell state regulated by gates. So what if we allow some neurons to be "cell states" i.e. the preactivation z of the the neuron at timestep t is equal to the dot product of weights and state of input neuron (which can be the state at the current timestep or past timestep) plus the previous state,
 ```math
 z_t = f(z_{t-1}) + W \cdot I_{t or t-1}
 ```
