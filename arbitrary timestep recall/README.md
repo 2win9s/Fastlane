@@ -1,6 +1,6 @@
 # ECHO 
 
-A 300+ parameter model that has been trained to be able to record recall and forget a floating point integer with decent accuracy over arbitrary? timesteps(only tested across 10000).
+A 300+ parameter model that has been trained to be able to record recall and forget a floating point integer with decent accuracy over arbitrary? timesteps(only tested across 100000).
 No gates or LSTM needed, just many more parameters, and countless hours of lost sanity trying to train it. Probably performs much worse too
 
 Input neurons are at index 0,1 and 2 the output neuron is indexed at 21, and the special "memory" neuron that retains
