@@ -818,24 +818,16 @@ void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
     {
         new_weights[i] = 0;
     }
-    
-
     for (int i = 0; i < m_new_weights; i++)
     {
-        if (freeze_neuron[i])
-        {
-            continue;
-        }
-        
         int index_to = dist_to(twister);
-        if (neural_net[index_to].input_neuron)
+        if (neural_net[index_to].input_neuron || freeze_neuron[index_to])
         {   
         }
         else{
             new_weights[index_to]++;
         }
     }
-    
     for (int i = 0; i < neural_net.size(); i++)
     {
         if (freeze_neuron[i])
