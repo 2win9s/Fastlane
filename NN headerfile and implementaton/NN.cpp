@@ -420,16 +420,13 @@ float NN::neuron::act_func_derivative(float x, float a){
 void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
     std::vector<std::vector<float>> weights_gradient(neural_net.size());
-    weights_gradient.shrink_to_fit();
     for (int i = 0; i < weights_gradient.size(); i++)
     {
         weights_gradient[i].reserve(neural_net[i].weights.size());
         weights_gradient[i].resize(neural_net[i].weights.size(),0);
     }
     std::vector<float> bias_gradient(neural_net.size(),0);
-    bias_gradient.shrink_to_fit();
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
-    neuron_gradient.shrink_to_fit();
     for (int i = 0; i < neuron_gradient.size(); i++)
     {
         neuron_gradient[i].reserve(neural_net.size());
@@ -489,7 +486,6 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     neuron_gradient.shrink_to_fit();
     for (int i = 0; i < bias_gradient.size(); i++)
     {
-            
         if (std::abs(bias_gradient[i]) > gradient_limit)
         {
             if (bias_gradient[i] > 0){
@@ -498,8 +494,29 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             else{
                 bias_gradient[i] = -gradient_limit;
             }
-            bias_g[i] += bias_gradient[i];
-        }   
+        }
+        else if (std::isnan(bias_gradient[i]))
+        {
+            if (std::signbit(bias_gradient[i]))
+            {
+                bias_gradient[i] = -gradient_limit;
+            }
+            else{
+                bias_gradient[i] = gradient_limit;
+            }
+        }
+        else if (std::isinf(bias_gradient[i]))
+        {
+            if (std::signbit(bias_gradient[i]))
+            {
+                bias_gradient[i] = -gradient_limit;
+            }
+            else{
+                bias_gradient[i] = gradient_limit;
+            }
+        }
+        
+        bias_g[i] += bias_gradient[i];   
     }
     for (int i = 0; i < weights_gradient.size(); i++)
     {
@@ -515,8 +532,32 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                 else{
                     weights_gradient[i][j] = -gradient_limit;
                 }
-                weights_g[i][j] += weights_gradient[i][j];    
             }
+            else if (std::isnan(weights_gradient[i][j]))
+            {
+                if (std::signbit(weights_gradient[i][j]))
+                {
+                    weights_gradient[i][j] = -gradient_limit;
+                }
+                else
+                {
+                    weights_gradient[i][j] = gradient_limit;
+                }
+                
+            }
+            else if (std::isinf(weights_gradient[i][j]))
+            {
+                if (std::signbit(weights_gradient[i][j]))
+                {
+                    weights_gradient[i][j] = -gradient_limit;
+                }
+                else
+                {
+                    weights_gradient[i][j] = gradient_limit;
+                }
+                
+            }
+            weights_g[i][j] += weights_gradient[i][j];      
         }
     }
 }
@@ -671,7 +712,6 @@ void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron)
         freeze_neuron.reserve(neural_net.size());
         freeze_neuron.resize(neural_net.size(),false);
     }
-    
     for (int i = 0; i < neural_net.size(); i++)
     {
         if (freeze_neuron[i])
@@ -691,7 +731,6 @@ void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron)
             neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
         }        
     }
-    
 }
 
 //weights = weights - h_param * signof(weights)
