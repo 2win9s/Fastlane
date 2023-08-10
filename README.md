@@ -1,4 +1,4 @@
-# Vanishing-intelligence-Exploding-stupidity
+#an unique architecture for neural networks from scratch
 Has similiarities with echo state network or IndRNN, but dumber.
 
 This is a continuation of a futile sci-fest entry that I did with friends during TY (the github repo for the old project has been privated, this is a complete fresh re-write + a few new ideas).
