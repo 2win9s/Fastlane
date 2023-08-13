@@ -22,5 +22,13 @@ z_t = b + W \cdot I_{t or t-1}
 
 The result is that a neuron will take the value of the input neuron's state at the current time step if it has a higher index than the input, and if it has a lower index it would take the state at the previous time step as input. Also if this network is not fully connected, it infact becomes possible to have some layer arrangement of neurons, the neurons that don't influence each other's preactivation through a weight in the present timestep can be arranged in a layer (also taking into account the index of the neurons that are inputs). The objective is to allow the neural net to be able to "learn" the number of layers and the number of neurons in each layer through some combination of regularisation of weights and the pruning of weight values close to 0 then rearranging layers according to the remaining weights. This may also allow neural networks to be "patched together", by re indexing the neurons of a neural network and then initialising some new weights.
 
-Since tensorflow, pytorch etc. don't seem to offer the exact functionality I needed and also considering just how slow python is (any performace intestive computation in pure python is a nightmare), this entire project is in C++. Artificial neural networks implemented from scratch (but of course I use c++ standard library and openmp, no boost though). 
+ 
+
+
+
+
+
+
+
+Since tensorflow, pytorch etc. don't seem to offer the exact functionality I needed and also considering just how slow python is (any performace intestive computation in pure python is a nightmare), this entire project is in C++. Artificial neural networks implemented from scratch (but of course I use c++ standard library and openmp, no boost though). NN headerfile and implementation is my best attempt at implementing it in C++.
 Segmentation fault (core dumped)...
