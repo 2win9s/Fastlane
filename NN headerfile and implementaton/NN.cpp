@@ -118,12 +118,17 @@ void NN::layermap_sync()
         //std::cout<<dependency[i].size()<<std::endl;
     }
     //std::cout<<std::endl;
-
     std::vector<int> layermap_layer_candidate;
     int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
     int mapped_n = 0;
     while(true)                                 
-    {                                                       
+    {
+        if (neural_net.size() == 0)
+        {
+            std::cout<<"ERROR, neural net with 0 neurons"<<std::endl;
+            std::exit(EXIT_FAILURE);
+        }
+                                  
         layermap_layer_candidate.clear();
         layermap_layer_candidate.reserve(neural_net.size() - mapped_n);
         for (int i = initial_neuron; i < neural_net.size(); i++)
@@ -149,7 +154,7 @@ void NN::layermap_sync()
         for (int i = 0; i < layermap_layer_candidate.size(); i++)
         {
             index_label[layermap_layer_candidate[i]] = false;
-            //input_tree[layermap_layer_candidate[i]].clear();
+            dependency[i].clear();
         }
         layermap.emplace_back(layermap_layer_candidate);            //adding a new layer
         for (int i = initial_neuron; i < neural_net.size(); i++)
@@ -814,15 +819,32 @@ void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
     std::uniform_int_distribution<int> dist_from(0, neural_net.size() -2);
     //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
     int* new_weights = new int[neural_net.size()];
+    int* new_weights_limit = new int[neural_net.size()];
+    long long total_available_weights = 0;
     for (int i = 0; i < neural_net.size(); i++)
     {
         new_weights[i] = 0;
     }
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        new_weights_limit[i] = neural_net.size() - 1 - neural_net[i].weights.size();
+        if (neural_net[i].input_neuron || freeze_neuron[i])
+        {
+            continue;
+        }
+        
+        total_available_weights += new_weights_limit[i];
+    }
+    if (m_new_weights > total_available_weights)
+    {
+        m_new_weights = total_available_weights;
+    }
     for (int i = 0; i < m_new_weights; i++)
     {
         int index_to = dist_to(twister);
-        if (neural_net[index_to].input_neuron || freeze_neuron[index_to])
-        {   
+        if (neural_net[index_to].input_neuron || freeze_neuron[index_to] || (new_weights[index_to] == new_weights_limit[index_to]))
+        {
+            i--;   
         }
         else{
             new_weights[index_to]++;
@@ -834,7 +856,6 @@ void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
         {
             continue;
         }
-        
         neural_net[i].weights.reserve(neural_net[i].weights.size() + new_weights[i]);
         momentumW[i].reserve(neural_net[i].weights.size() + new_weights[i]);
         for (int j = 0; j < new_weights[i]; j++)
@@ -851,9 +872,13 @@ void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
                 momentumW[i].emplace_back(0);
                 weights_g[i].emplace_back(0);
             }
+            else{
+                j--;
+            }
         }
     }
     delete[] new_weights;
+    delete[] new_weights_limit;
     momentum_clear();
     layermap_sync();
 }
@@ -1143,4 +1168,122 @@ void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &
         }
     }
 }
+
+bool NN::input_connection_check(bool outputc, bool memoryc, bool rc){
+    neural_net_clear();
+    for (int i = 0; i < input_index.size(); i++)
+    {
+        neural_net[input_index[i]].output = 1;
+        for (int j = 0; j < layermap.size(); j++)
+        {
+            for (int k = 0; k < layermap[j].size(); k++)
+            {
+                for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
+                {
+                    neural_net[layermap[j][k]].output += 1 * neural_net[neural_net[layermap[j][k]].weights[l].index].output;    //just to see if input will influence all outputs, easiest way to do this no activation function and set all weights to +1
+                }
+            }
+        }
+        //2 forward passes to see if a recurrent connection has effect
+        if (rc)
+        {
+            for (int j = 0; j < layermap.size(); j++)
+            {
+                for (int k = 0; k < layermap[j].size(); k++)
+                {
+                    for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
+                    {
+                        neural_net[layermap[j][k]].output += 1 * neural_net[neural_net[layermap[j][k]].weights[l].index].output;    
+                    }
+                }
+            }
+        }
+        if (outputc)
+        {
+            for (int m = 0; m < output_index.size(); m++)
+            {
+                if (neural_net[output_index[m]].output == 0)
+                {
+                    neural_net_clear();
+                    return false;
+                }
+            }
+        }
+        if (memoryc)
+        {
+            for (int m = 0; m < memory_index.size(); m++)
+            {
+                if (neural_net[memory_index[m]].output == 0)
+                {
+                    neural_net_clear();
+                    return false;
+                }
+                
+            }
+        }
+        neural_net_clear();
+    }
+    return true;
+}
+
+bool NN::memory_connection_check(bool rc)
+{
+    neural_net_clear();
+    for (int i = 0; i < memory_index.size(); i++)
+    {
+        neural_net[memory_index[i]].output = 1;
+        for (int j = 0; j < layermap.size(); j++)
+        {
+            for (int k = 0; k < layermap[j].size(); k++)
+            {
+                for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
+                {
+                    neural_net[layermap[j][k]].output += 1 * neural_net[neural_net[layermap[j][k]].weights[l].index].output;    //easiest way to do this no activation function and set all weights to +1
+                }
+            }
+        }
+        //2 forward passes to see if a recurrent connection has effect
+        if (rc)
+        {
+            for (int j = 0; j < layermap.size(); j++)
+            {
+                for (int k = 0; k < layermap[j].size(); k++)
+                {
+                    for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
+                    {
+                        neural_net[layermap[j][k]].output += 1 * neural_net[neural_net[layermap[j][k]].weights[l].index].output;    
+                    }
+                }
+            }
+        }
+        for (int m = 0; m < output_index.size(); m++)
+        {
+            if (neural_net[output_index[m]].output == 0)
+            {
+                neural_net_clear();
+                return false;
+            }
+        }
+        neural_net_clear();
+    }
+    return true;
+}
+
+void NN::ensure_connection(int c_step_size ,bool io, bool im, bool mo, bool rc){
+    if (io || im)
+    {
+        while (!input_connection_check(io,im,rc))
+        {
+            new_weights(c_step_size);
+        }
+    }
+    if (mo)
+    {
+        while (!memory_connection_check(rc))
+        {
+            new_weights(c_step_size);
+        }
+    }
+}
+
 

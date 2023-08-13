@@ -102,7 +102,14 @@ struct NN
 
     void sleep();
     void backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &forwardpass_current, std::vector<float> &target,float learning_rate, float momentum_param = 0.9, float ReLU_leak = 0);
+    
+    //does the value of every input have influence all output neurons
+    bool input_connection_check(bool outputc = true, bool memoryc = true, bool rc = true);  //rc is checking for recurrent connections within 1 timestep, of course there may be a more complex pathway that involves many timesteps, write your own function if needed
+    //does the value of every "memory neuron" influence all output neurons
+    bool memory_connection_check(bool rc = true);
 
+    //c_step_size is the number of connections added before each check, io check input to output, im check input to memeory, mo memory to output, and rc whether to consider recurrent connections or not
+    void ensure_connection(int c_step_size ,bool io = true, bool im = true, bool mo = true, bool rc = true);
 };
 
 
