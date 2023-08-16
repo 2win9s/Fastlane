@@ -250,7 +250,13 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
                 neural_net[i].weights[j].value = 0;
             }
             else{
-                neural_net[i].weights[j].value = weight_init_dist(twister) /* multiplier*/;
+                if (neural_net[i].weights[j].index > i)
+                {
+                    neural_net[i].weights[j].value = 0;
+                }
+                else{
+                    neural_net[i].weights[j].value = weight_init_dist(twister) /* multiplier*/;
+                }
             }
         } 
     }
@@ -424,13 +430,14 @@ float NN::neuron::act_func_derivative(float x, float a){
 //back propgation through time, no weight updates, only gradient
 void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
-    std::vector<std::vector<float>> weights_gradient(neural_net.size());
+    weights_gradient.resize(neural_net.size());
     for (int i = 0; i < weights_gradient.size(); i++)
     {
         weights_gradient[i].reserve(neural_net[i].weights.size());
         weights_gradient[i].resize(neural_net[i].weights.size(),0);
     }
-    std::vector<float> bias_gradient(neural_net.size(),0);
+    bias_gradient.reserve(neural_net.size());
+    bias_gradient.resize(neural_net.size(),0);
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
     for (int i = 0; i < neuron_gradient.size(); i++)
     {
@@ -567,6 +574,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     }
 }
 
+/*
 //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
 void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param, float ReLU_leak, float gradient_limit,std::vector<bool> freeze_neuron)
 {
@@ -670,8 +678,6 @@ void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_sta
         momentumB[i] = (momentumB[i] * momentum_param) + (bias_gradient[i] * (1 - momentum_param));
         neural_net[i].bias -= learning_rate * momentumB[i];
     }
-    bias_gradient.clear();
-    bias_gradient.shrink_to_fit();
     for (int i = 0; i < weights_gradient.size(); i++)
     {
         if (freeze_neuron[i])
@@ -692,7 +698,7 @@ void NN::bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_sta
             neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
         }
     }
-}
+}   */
 
 void NN::update_momentum(float momentum){
     for (int i = 0; i < momentumB.size(); i++)
@@ -1115,59 +1121,6 @@ void NN::sleep(){
 
 }
 
-void NN::backward_pass(std::vector<float> &forwardpass_past,std::vector<float> &forwardpass_current, std::vector<float> &target,float learning_rate, float momentum_param,float ReLU_leak){
-    std::vector<float> neuron_gradient(neural_net.size(),0);
-    neuron_gradient.shrink_to_fit();
-    std::vector<std::vector<float>> weights_gradient(neural_net.size());
-    weights_gradient.shrink_to_fit();
-    for (int i = 0; i < weights_gradient.size(); i++)
-    {
-        weights_gradient[i].reserve(neural_net[i].weights.size());
-        weights_gradient[i].resize(neural_net[i].weights.size(),0);
-    }
-    std::vector<float> bias_gradient(neural_net.size(),0);
-    bias_gradient.shrink_to_fit();
-
-    for (int i = 0; i < target.size(); i++)
-    {
-        neuron_gradient[output_index[i]] += forwardpass_current[output_index[i]] - target[i];
-    }
-    for (int i = layermap.size() - 1; i >= 0; i--)
-    {
-        for (int j = 0; j < layermap[i].size(); j++)
-       {
-            for (int k = 0; k < neural_net[layermap[i][j]].weights.size(); k++){
-		        float dldz = neuron_gradient[layermap[i][j]] * neural_net[layermap[i][j]].act_func_derivative(forwardpass_current[layermap[i][j]],ReLU_leak);
-                bias_gradient[layermap[i][j]] += dldz;
-                
-		    if(layermap[i][j] > neural_net[layermap[i][j]].weights[k].index){
-                    weights_gradient[layermap[i][j]][k] += dldz * forwardpass_current[neural_net[layermap[i][j]].weights[k].index];
-                    neuron_gradient[neural_net[layermap[i][j]].weights[k].index] += dldz * neural_net[layermap[i][j]].weights[k].value;
-                }
-                else{   //we truncate the backpropagation here
-                    weights_gradient[layermap[i][j]][k] += dldz * forwardpass_past[neural_net[layermap[i][j]].weights[k].index];
-                }
-            }
-       }    
-    }
-    neuron_gradient.clear();
-    neuron_gradient.shrink_to_fit();
-    for (int i = 0; i < bias_gradient.size(); i++)
-    {
-        momentumB[i] = momentumB[i] * momentum_param + (bias_gradient[i] * (1 - momentum_param));
-        neural_net[i].bias -= learning_rate * momentumB[i];
-    }
-    bias_gradient.clear();
-    bias_gradient.shrink_to_fit();
-    for (int i = 0; i < weights_gradient.size(); i++)
-    {
-        for (int j = 0; j < weights_gradient[i].size(); j++)
-        {
-            momentumW[i][j] = momentumW[i][j] * momentum_param + (weights_gradient[i][j] * (1 - momentum_param));
-            neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
-        }
-    }
-}
 
 bool NN::input_connection_check(bool outputc, bool memoryc, bool rc){
     neural_net_clear();

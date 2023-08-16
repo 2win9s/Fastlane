@@ -49,6 +49,9 @@ struct NN
     std::vector<float> momentumB;  
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
+
+    std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
+    std::vector<float>  bias_gradient;                  //reducing memory allocations and deallocations
     
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
     //only for forward
