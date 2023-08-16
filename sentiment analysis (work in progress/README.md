@@ -7,5 +7,5 @@ entity labels removed
 
 
 
-update:model is significantly underfit, will require new larger sparse model, a function that ensures connection between inputs and outputs is on the to do list.
+update:
 Finding the right learning rate is hard.
