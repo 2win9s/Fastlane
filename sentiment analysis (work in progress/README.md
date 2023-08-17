@@ -8,4 +8,4 @@ entity labels removed
 
 
 update:
-many bugs found in implementation
+it seems too many weights have been initialised to 0 to break symmetry
