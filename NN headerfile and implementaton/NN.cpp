@@ -458,7 +458,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                 * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[i][layermap[j][k]],ReLU_leak);
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
-                //neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
+                neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
                 for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
                     if(layermap[j][k] > neural_net[layermap[j][k]].weights[l].index){       //if greater then must be same time step, if less must be previous timestep
