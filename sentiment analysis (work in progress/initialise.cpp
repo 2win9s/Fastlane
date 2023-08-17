@@ -60,7 +60,7 @@ int main(){
     {
         mem_vec[i] = 2023 + i;
     }
-    NN network(4277,input_vec,{4274,4275,4276},mem_vec,0.003,0.0015);
+    NN network(4277,input_vec,{4274,4275,4276},mem_vec,0.03,0.015);
     network.ensure_connection(100,true,true,true,false);
     for (int i = 0; i < network.neural_net.size(); i++)
     {
