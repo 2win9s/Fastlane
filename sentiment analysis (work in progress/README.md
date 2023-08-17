@@ -8,4 +8,4 @@ entity labels removed
 
 
 update:
-Finding the right learning rate is hard.
+many bugs found in implementation
