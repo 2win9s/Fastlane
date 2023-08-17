@@ -434,10 +434,12 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     for (int i = 0; i < weights_gradient.size(); i++)
     {
         weights_gradient[i].reserve(neural_net[i].weights.size());
-        weights_gradient[i].resize(neural_net[i].weights.size(),0);
+        weights_gradient[i].resize(neural_net[i].weights.size());
+        std::fill(weights_gradient[i].begin(),weights_gradient[i].end(),0);
     }
     bias_gradient.reserve(neural_net.size());
     bias_gradient.resize(neural_net.size(),0);
+    std::fill(bias_gradient.begin(),bias_gradient.end(),0);
     std::vector<std::vector<float>> neuron_gradient(forwardpass_states.size());
     for (int i = 0; i < neuron_gradient.size(); i++)
     {
@@ -504,14 +506,14 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                 bias_gradient[i] = gradient_limit;
             }
             else{
-                bias_gradient[i] = -gradient_limit;
+                bias_gradient[i] = -1 * gradient_limit;
             }
         }
         else if (std::isnan(bias_gradient[i]))
         {
             if (std::signbit(bias_gradient[i]))
             {
-                bias_gradient[i] = -gradient_limit;
+                bias_gradient[i] = -1 * gradient_limit;
             }
             else{
                 bias_gradient[i] = gradient_limit;
@@ -521,7 +523,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
         {
             if (std::signbit(bias_gradient[i]))
             {
-                bias_gradient[i] = -gradient_limit;
+                bias_gradient[i] = -1 * gradient_limit;
             }
             else{
                 bias_gradient[i] = gradient_limit;
@@ -542,14 +544,14 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
                     weights_gradient[i][j] = gradient_limit;
                 }
                 else{
-                    weights_gradient[i][j] = -gradient_limit;
+                    weights_gradient[i][j] = -1 * gradient_limit;
                 }
             }
             else if (std::isnan(weights_gradient[i][j]))
             {
                 if (std::signbit(weights_gradient[i][j]))
                 {
-                    weights_gradient[i][j] = -gradient_limit;
+                    weights_gradient[i][j] = -1 * gradient_limit;
                 }
                 else
                 {
@@ -561,7 +563,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             {
                 if (std::signbit(weights_gradient[i][j]))
                 {
-                    weights_gradient[i][j] = -gradient_limit;
+                    weights_gradient[i][j] = -1 * gradient_limit;
                 }
                 else
                 {
