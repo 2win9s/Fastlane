@@ -441,6 +441,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     bias_gradient.resize(neural_net.size(),0);
     std::fill(bias_gradient.begin(),bias_gradient.end(),0);
     neuron_gradient.reserve(forwardpass_states.size());
+    neuron_gradient.resize((forwardpass_states.size() >=neuron_gradient.size()) ? forwardpass_states.size():neuron_gradient.size());
     for (int i = 0; i < forwardpass_states.size(); i++)
     {
         neuron_gradient[i].reserve(neural_net.size());
