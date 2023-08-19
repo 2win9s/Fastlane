@@ -553,7 +553,6 @@ int main(){
     std::cin>>epochs;
     std::cout<<"learning rate"<<std::endl;
     std::cin>>l_r; 
-    /*
     for (int i = 0; i < 1; i++)
     {
         std::cout<<"Neurl net "<<i<<std::endl;
@@ -571,7 +570,7 @@ int main(){
         float avg_300_acc_test_b = avg_acc_val(hopeless[i]);
         std::cout<<"average accuracy on test dataset before training "<<avg_300_acc_test_b<<std::endl; 
         report<<"average accuracy on test dataset before training "<<avg_300_acc_test_b<<"\n";
-    }*/
+    }
     report.close();
     int progress = 4000;    //for a progress per epoch
     
