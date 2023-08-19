@@ -7,4 +7,4 @@ entity labels removed
 
 
 
-progress is slow, loss goin down slowly but if learning rate is increased loss explodes, contemplating other optimisation algorithms maybe ADAM?
+UPDATE: As a half baked amateur programmer, I had made a severe mistake in only giving every tenth character as input for the neural network, that is obviously not enough information for any degree of accuracy, I'm back to square one.
