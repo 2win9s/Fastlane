@@ -438,7 +438,6 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
 }
 
 
-//average over 1000 iterations
 float avg_loss_tr(NN &hopeless){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
@@ -454,7 +453,6 @@ float avg_loss_tr(NN &hopeless){
     return loss/40000;
 }
 
-//average over 1000 iterations
 float avg_loss_val(NN &hopeless){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
@@ -470,7 +468,6 @@ float avg_loss_val(NN &hopeless){
     return loss/10000;
 }
 
-//average over 300 iterations
 float avg_acc_tr(NN &hopeless){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
