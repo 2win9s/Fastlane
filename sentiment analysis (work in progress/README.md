@@ -7,5 +7,4 @@ entity labels removed
 
 
 
-update:
-it seems too many weights have been initialised to 0 to break symmetry
+progress is slow, loss goin down slowly but if learning rate is increased loss explodes, contemplating other optimisation algorithms maybe ADAM?
