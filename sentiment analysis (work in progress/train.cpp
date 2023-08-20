@@ -426,7 +426,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate,std::vector<f
     {
         forwardpass_states[len -1][hopeless.output_index[j]] = output[len -1][j];
     }
-    hopeless.bptt(forwardpass_states,forwardpass_pa,dl,re_leak,10);
+    hopeless.bptt(len,forwardpass_states,forwardpass_pa,dl,re_leak,10);
 }
 
 
