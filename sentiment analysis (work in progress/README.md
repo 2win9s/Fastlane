@@ -8,4 +8,4 @@ The content of the csv file have been extracted and split into the text.txt and 
 
 
 
-UPDATE: As a half baked amateur programmer, I had made a severe mistake in only giving every tenth character as input for the neural network, that is obviously not enough information for any degree of accuracy, I'm back to square one.
+UPDATE: yet another bug caught, wasn't storing pre activstionms correctly, was using .reserve on a vector instead of .resize , so when you try and access it it is out of index but at the same time it doesn't corrupt things
