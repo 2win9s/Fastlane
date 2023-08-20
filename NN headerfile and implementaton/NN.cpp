@@ -460,8 +460,8 @@ float NN::neuron::act_func_derivative(float x, float a){
         }
 }
 
-//back propgation through time, no weight updates, only gradient
-void NN::bptt(std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
+//back propgation through time, no weight updates, only gradient, timestep is the timestep to start back prorpagating from, forwardpass_pa are the pre activations
+void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
     weights_gradient.resize(neural_net.size());
     for (int i = 0; i < weights_gradient.size(); i++)
@@ -475,14 +475,14 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states,std::vector<st
     std::fill(bias_gradient.begin(),bias_gradient.end(),0);
     neuron_gradient.reserve(forwardpass_states.size());
     neuron_gradient.resize((forwardpass_states.size() >=neuron_gradient.size()) ? forwardpass_states.size():neuron_gradient.size());
-    for (int i = 0; i < forwardpass_states.size(); i++)
+    for (int i = 0; i < timestep; i++)
     {
         neuron_gradient[i].reserve(neural_net.size());
         neuron_gradient[i].resize(neural_net.size(),0);
         std::fill(neuron_gradient[i].begin(),neuron_gradient[i].end(),0);
     }
     //for loop descending starting from the most recent timestep
-    for (int i = forwardpass_states.size() - 1; i > 0; i--)
+    for (int i = timestep - 1; i > 0; i--)
     {
         for(int j = 0; j < target_output_loss[i].size(); j++){
             neuron_gradient[i][output_index[j]] += target_output_loss[i][j];
