@@ -11,9 +11,8 @@
 
 #include<omp.h>
 
-std::ofstream report;
-float a = 0.01;
-float re_leak = 0.01;
+float a = 0;
+float re_leak = 0;
 
 const float max_val = 10000000000;
 const float n_zero = 0.0001; //try and stop things from freaking out 
@@ -111,13 +110,6 @@ void parameter_check(NN &hopeless){
     std::cout<<"mean bias "<<b_mean;
     std::cout<<" variance of bias "<<b_variance<<"\n";
     std::cout<<"number of weights "<<w_count<<std::endl;
-
-    report<<"parameters"<<"\n";
-    report<<"mean weights "<<w_mean;
-    report<<" variance of weights "<<w_variance<<"\n";
-    report<<"mean bias "<<b_mean;
-    report<<" variance of bias "<<b_variance<<"\n";
-    report<<"number of weights "<<w_count<<"\n";
 }
 
 void momentum_check(NN &hopeless){
@@ -149,7 +141,7 @@ bool broken_float(float x){
 void soft_max(std::vector<float> &output){
     double denominator = 0;
     std::vector<float> expout(3);
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < output.size(); i++)
     {
         expout[i] = std::exp(output[i]);
         if (broken_float(expout[i]))
@@ -159,7 +151,7 @@ void soft_max(std::vector<float> &output){
         denominator += expout[i]; 
     }
     denominator = 1 / denominator; 
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < output.size(); i++)
     {
         output[i] = expout[i] * denominator;
     }
@@ -202,13 +194,10 @@ float soft_max_loss(std::vector<float> &output, std::vector<float> &target){
     return loss;
 }
 
-float loss_iteration(int textindex, NN &hopeless){
+float loss_iteration(int textindex, NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     hopeless.neural_net_clear();
     int len = data_points[textindex].length();
     float loss;
-    std::vector<float> inputs(70,0);
-    std::vector<float> target(3,0);
-    std::vector<float> output(3,0);
     if (labels[textindex] == "Positive")
     {
         target[0] = 1;
@@ -232,6 +221,7 @@ float loss_iteration(int textindex, NN &hopeless){
         std::cout<<labels[textindex]<<std::endl;
         std::exit(EXIT_FAILURE);
     }
+    bool chara[7];
     for (int i = 0; i < data_points[textindex].length(); i+=10)
     {
         std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
@@ -239,7 +229,6 @@ float loss_iteration(int textindex, NN &hopeless){
         int index = 0;
         for (int j = i; j < (((i + 10) < len) ? (i + 10):len); j++)
         {
-            bool chara[7];
             std::string chra = "";
             chra += data_points[textindex][j];
             chara_convert7(chara,input_convert(chra));
@@ -263,12 +252,9 @@ float loss_iteration(int textindex, NN &hopeless){
     return loss;   
 }
 
-bool acc_iteration(int textindex, NN &hopeless){
+bool acc_iteration(int textindex, NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     hopeless.neural_net_clear();
     int len = data_points[textindex].length();
-    std::vector<float> inputs(70,0);
-    std::vector<float> target(3,0);
-    std::vector<float> output(3,0);
     if (labels[textindex] == "Positive")
     {
         target[0] = 1;
@@ -292,6 +278,7 @@ bool acc_iteration(int textindex, NN &hopeless){
         std::cout<<labels[textindex]<<std::endl;
         std::exit(EXIT_FAILURE);
     }
+    bool chara[7];
     for (int i = 0; i < data_points[textindex].length(); i+=10)
     {
         std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
@@ -299,7 +286,6 @@ bool acc_iteration(int textindex, NN &hopeless){
         int index = 0;
         for (int j = i; j < (((i + 10) < len) ? (i + 10):len); j++)
         {
-            bool chara[7];
             std::string chra = "";
             chra += data_points[textindex][j];
             chara_convert7(chara,input_convert(chra));
@@ -324,7 +310,7 @@ bool acc_iteration(int textindex, NN &hopeless){
     return correct;   
 }
 
-void tr_iteration(int textindex, NN &hopeless, float learning_rate){
+void tr_iteration(int textindex, NN &hopeless, float learning_rate,std::vector<float> &inputs,std::vector<std::vector<float>> &target,std::vector<std::vector<float>> &output,std::vector<std::vector<float>> &dl,std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> forwardpass_pa){
     hopeless.neural_net_clear();
     hopeless.pre_activations_clear();
     int len;
@@ -335,17 +321,17 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     else{
         len = std::floor(data_points[textindex].length() / 10) + 1;
     }
-    std::vector<float> inputs(70,0);
-    std::vector<std::vector<float>> target(len);
-    std::vector<std::vector<float>> output(len);
-    std::vector<std::vector<float>> dl(len);
-    std::vector<std::vector<float>> forwardpass_states(len);
-    std::vector<std::vector<float>> forwardpass_pa(len);
+    int c_size = target.size();
+    c_size = (len>c_size) ? len:c_size;
+    target.resize(c_size);
+    output.resize(c_size);
+    dl.resize(c_size);
+    forwardpass_states.resize(c_size);
+    forwardpass_pa.resize(c_size);
     if (labels[textindex] == "Positive")
     {
         for (int i = 0; i < len; i++)
         {
-            target[i].reserve(3);
             target[i].resize(3);
             target[i][0] = 1;
             target[i][1] = 0;
@@ -356,7 +342,6 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     {
         for (int i = 0; i < len; i++)
         {
-            target[i].reserve(3);
             target[i].resize(3);
             target[i][0] = 0;
             target[i][1] = 1;
@@ -367,7 +352,6 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     {
         for (int i = 0; i < len; i++)
         {
-            target[i].reserve(3);
             target[i].resize(3);
             target[i][0] = 0;
             target[i][1] = 0;
@@ -381,22 +365,28 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     }    
     for (int i = 0; i < len; i++)
     {
-        output[i].reserve(3);
-        output[i].resize(3,0);
+        output[i].resize(3);
+        output[i][0] = 0;
+        output[i][1] = 0;
+        output[i][2] = 0;
     }
     for (int i = 0; i < len; i++)
     {
-        dl[i].reserve(3);
-        dl[i].resize(3,0);
+        dl[i].resize(3);
+        dl[i][0] = 0;
+        dl[i][1] = 0;
+        dl[i][2] = 0;
     }
     for (int i = 0; i < len; i++)
     {
-        forwardpass_states[i].reserve(hopeless.neural_net.size());
-        forwardpass_states[i].resize(hopeless.neural_net.size(),0);
-        forwardpass_pa[i].reserve(hopeless.neural_net.size());
-        forwardpass_pa[i].resize(hopeless.neural_net.size(),0);
+        forwardpass_states[i].resize(hopeless.neural_net.size());
+        forwardpass_pa[i].resize(hopeless.neural_net.size());
+        std::fill(forwardpass_states[i].begin(),forwardpass_states[i].end(),0);
+        std::fill(forwardpass_pa[i].begin(),forwardpass_pa[i].end(),0);
     }
     int fpasscount = 0;
+    bool chara[7];
+    std::string chra = "";
     for (int i = 0; i < data_points[textindex].length(); i+=10)
     {
         std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
@@ -404,11 +394,10 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
         int index = 0;
         for (int j = i; j < (((i + 10) < data_points[textindex].length()) ? (i + 10):data_points[textindex].length()); j++)
         {
-            bool chara[7];
-            std::string chra = "";
+            chra = "";
             chra += data_points[textindex][j];
             chara_convert7(chara,input_convert(chra));
-            inputs[index +0] += chara[0];
+            inputs[index] += chara[0];
             inputs[index +1] += chara[1];
             inputs[index +2] += chara[2];
             inputs[index +3] += chara[3];
@@ -423,7 +412,6 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
             forwardpass_states[fpasscount][j] = hopeless.neural_net[j].output;
             forwardpass_pa[fpasscount][j] = hopeless.pre_activations[j];
         }
-        hopeless.pre_activations_clear();
         for (int j = 0; j < hopeless.output_index.size(); j++)
         {
             output[fpasscount][j] = hopeless.neural_net[hopeless.output_index[j]].output;
@@ -442,7 +430,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
 }
 
 
-float avg_loss_tr(NN &hopeless){
+float avg_loss_tr(NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
     float loss = 0;
@@ -452,12 +440,12 @@ float avg_loss_tr(NN &hopeless){
         {
             continue;
         }
-        loss += loss_iteration(i,hopeless);
+        loss += loss_iteration(i,hopeless,inputs,target,output);
     }
     return loss/40000;
 }
 
-float avg_loss_val(NN &hopeless){
+float avg_loss_val(NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
     float loss = 0;
@@ -467,12 +455,12 @@ float avg_loss_val(NN &hopeless){
         {
             continue;
         }
-        loss += loss_iteration(i,hopeless);
+        loss += loss_iteration(i,hopeless,inputs,target,output);
     }
     return loss/10000;
 }
 
-float avg_acc_tr(NN &hopeless){
+float avg_acc_tr(NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
     float acc = 0;
@@ -482,13 +470,13 @@ float avg_acc_tr(NN &hopeless){
         {
             continue;
         }
-        acc += acc_iteration(i,hopeless);
+        acc += acc_iteration(i,hopeless,inputs,target,output);
     }
     acc = acc/40000;
     return acc;
 }
 
-float avg_acc_val(NN &hopeless){
+float avg_acc_val(NN &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
     std::random_device rd;                          
     std::mt19937 mtwister(rd());
     float acc = 0;
@@ -499,13 +487,11 @@ float avg_acc_val(NN &hopeless){
             continue;
         }
         
-        acc += acc_iteration(i,hopeless);
+        acc += acc_iteration(i,hopeless,inputs,target,output);
     }
     acc = acc / 10000;
     return acc;
 }
-
-
 
 
 void bias_reg(float param,NN &hopeless){
@@ -533,14 +519,11 @@ float He_initialisation(int n, float a){
 }
 
 
-
 int main(){
-    //omp_set_num_threads(8);
-    //report.open("report.txt",std::fstream::trunc);
     load_data(); 
-    std::vector<NN> hopeless(4);    //mini batch size of 4
+    std::vector<NN> hopeless(8);    //mini batch size of 8
 
-    NN d("model.txt");
+    NN d("model2.txt");
     hopeless[0] = d;
     
     omp_set_num_threads(hopeless.size());
@@ -557,32 +540,67 @@ int main(){
     std::cin>>epochs;
     std::cout<<"learning rate"<<std::endl;
     std::cin>>l_r; 
-    for (int i = 0; i < 1; i++)
-    {
-        std::cout<<"Neurl net "<<i<<std::endl;
-        report<<"Neurl net "<<i<<std::endl;
-        parameter_check(hopeless[i]);
-        float avg_1000_loss_tr_b = avg_loss_tr(hopeless[i]);
-        std::cout<<"average loss on training dataset before training "<<avg_1000_loss_tr_b<<std::endl; 
-        report<<"average loss on training dataset before training "<<avg_1000_loss_tr_b<<"\n";
-        float avg_1000_loss_test_b = avg_loss_val(hopeless[i]);
-        std::cout<<"average loss on test dataset before training "<<avg_1000_loss_test_b<<std::endl; 
-        report<<"average loss on test dataset before training "<<avg_1000_loss_test_b<<"\n";
-        float avg_300_acc_tr_b = avg_acc_tr(hopeless[i]);
-        std::cout<<"average accuracy on training dataset before training "<<avg_300_acc_tr_b<<std::endl; 
-        report<<"average accuracy on training dataset before training "<<avg_300_acc_tr_b<<"\n";
-        float avg_300_acc_test_b = avg_acc_val(hopeless[i]);
-        std::cout<<"average accuracy on test dataset before training "<<avg_300_acc_test_b<<std::endl; 
-        report<<"average accuracy on test dataset before training "<<avg_300_acc_test_b<<"\n";
-    }
-    report.close();
-    int progress = 4000;    //for a progress per epoch
+    float lr0 = l_r;
+    int progress = 4000;    //for a progress bar for each epoch
     
     
     int epc = 0;        //to replace the for loops with while loops using a shared variable
     int t_set_itr = 0;  //to replace the for loops with while loops using a shared variable
+    float avg_loss_tr_b;
+    float avg_loss_val_b;
+    float avg_acc_tr_b;
+    float avg_acc_val_b;
     #pragma omp parallel
     {
+        //decalration of thread private variables, lost of stuff here to reduce the amount of memory allocations and de allocations
+        int thread_num;
+        thread_num = omp_get_thread_num();
+        std::vector<float> inputs(70,0);
+        std::vector<float> target(3,0);
+        std::vector<float> output(3,0);
+
+
+        std::vector<std::vector<float>> target_tr;
+        std::vector<std::vector<float>> output_tr;
+        std::vector<std::vector<float>> dl_tr;
+        std::vector<std::vector<float>> forwardpass_states_tr;
+        std::vector<std::vector<float>> forwardpass_pa_tr;
+        
+        #pragma omp single
+        {
+            std::cout<<"Generating Summary"<<std::endl;
+        }
+        
+        #pragma omp sections
+        {
+            #pragma omp sectios
+            {
+                avg_loss_tr_b = avg_loss_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_loss_val_b = avg_loss_val(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_acc_tr_b = avg_acc_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_acc_val_b = avg_acc_val(hopeless[thread_num],inputs,target,output);
+            }
+        }
+        #pragma omp barrier
+
+        #pragma omp single
+        {
+            parameter_check(hopeless[0]); 
+            std::cout<<"average loss on training dataset before training "<<avg_loss_tr_b<<std::endl;
+            std::cout<<"average loss on validation dataset before training "<<avg_loss_val_b<<std::endl; 
+            std::cout<<"average accuracy on training dataset before training "<<avg_acc_tr_b<<std::endl;
+            std::cout<<"average accuracy on validation dataset before training "<<avg_acc_val_b<<std::endl;
+        }
+ 
         while(epc < epochs)
         {
             #pragma omp single
@@ -602,7 +620,7 @@ int main(){
                     {
                         continue;
                     }
-                    tr_iteration(msg, hopeless[iiii],l_r); 
+                    tr_iteration(msg, hopeless[iiii],l_r,inputs,target_tr,output_tr,dl_tr,forwardpass_states_tr,forwardpass_pa_tr); 
                 }
                 
                 #pragma omp barrier
@@ -654,28 +672,59 @@ int main(){
                 std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
                 std::cout<<std::flush;
                 epc++;
-                l_r = l_r * 0.9;   //exponential decay
+                l_r = lr0 /(1 + 0.1*epc);   //exponential decay
+                if ((epc % 10 == 0 )&(epc != 0))
+                {
+                    parameter_check(hopeless[0]);
+                    float L = avg_loss_val(hopeless[0],inputs,target,output);
+                    std::cout<<"validation_loss"<<L<<std::endl;
+                    std::cout<<"saved to epoch "<<epc<<" loss "<< L<<std::endl;
+                    std::string f= "epoch " + std::to_string(epc) + " loss " + std::to_string(L) + ".txt";
+                    hopeless[0].save(f);
+                }
+                
             }
+        }
+
+        #pragma omp single
+        {
+            std::cout<<"\n";
+            std::cout<<"training complete"<<std::endl;
+            std::cout<<"Generating Summary"<<std::endl;
+        }
+        
+        #pragma omp sections
+        {
+            #pragma omp sectios
+            {
+                avg_loss_tr_b = avg_loss_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_loss_val_b = avg_loss_val(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_acc_tr_b = avg_acc_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp sectios
+            {
+                avg_acc_val_b = avg_acc_val(hopeless[thread_num],inputs,target,output);
+            }
+        }
+        #pragma omp barrier
+
+        #pragma omp single
+        {
+            parameter_check(hopeless[0]);
+            std::cout<<"average loss on training dataset "<<avg_loss_tr_b<<std::endl;
+            std::cout<<"average loss on validation dataset "<<avg_loss_val_b<<std::endl; 
+            std::cout<<"average accuracy on training dataset "<<avg_acc_tr_b<<std::endl;
+            std::cout<<"average accuracy on validation dataset "<<avg_acc_val_b<<std::endl; 
         }    
     }
-    report.open("post_report.txt",std::fstream::trunc);
     std::cout<<"\n";  
     std::cout<<std::flush;
-    std::cout<<"training complete"<<std::endl;
-    parameter_check(hopeless[0]);
-    float avg_1000_loss_tr = avg_loss_tr(hopeless[0]);
-    std::cout<<"average loss on training dataset  "<<avg_1000_loss_tr<<std::endl; 
-    report<<"average loss on training dataset"<<avg_1000_loss_tr<<"\n";
-    float avg_1000_loss_test = avg_loss_val(hopeless[0]);
-    std::cout<<"average loss on validation dataset "<<avg_1000_loss_test<<std::endl;
-    report<<"average loss on validation dataset "<<avg_1000_loss_test<<"\n";    
-    float avg_300_acc_tr = avg_acc_tr(hopeless[0]);
-    std::cout<<"average accuracy on training dataset  "<<avg_300_acc_tr<<std::endl; 
-    report<<"average accuracy on training dataset "<<avg_300_acc_tr<<"\n"; 
-    float avg_300_acc_test = avg_acc_val(hopeless[0]);
-    std::cout<<"average accuracy on validation dataset "<<avg_300_acc_test<<std::endl;
-    report<<"average accuracy on validation dataset "<<avg_300_acc_test<<"\n";
-    report.close();
     std::string save_filename;
     while (true)
     {
