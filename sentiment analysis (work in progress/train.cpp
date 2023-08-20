@@ -169,7 +169,6 @@ void dl_softmax(std::vector<float> &output, std::vector<float> &target, std::vec
     dl[0] = output[0] - target[0];
     dl[1] = output[1] - target[1];
     dl[2] = output[2] - target[2]; 
-
 }
 
 bool wow(std::vector<float> &output, std::vector<float> &target){
@@ -244,13 +243,13 @@ float loss_iteration(int textindex, NN &hopeless){
             std::string chra = "";
             chra += data_points[textindex][j];
             chara_convert7(chara,input_convert(chra));
-            inputs[index + 0] = chara[0];
-            inputs[index + 1] = chara[1];
-            inputs[index + 2] = chara[2];
-            inputs[index + 3] = chara[3];
-            inputs[index + 4] = chara[4];
-            inputs[index + 5] = chara[5];
-            inputs[index + 6] = chara[6];
+            inputs[index ] += chara[0];
+            inputs[index + 1] += chara[1];
+            inputs[index + 2] += chara[2];
+            inputs[index + 3] += chara[3];
+            inputs[index + 4] += chara[4];
+            inputs[index + 5] += chara[5];
+            inputs[index + 6] += chara[6];
             index += 7;
         }
         hopeless.forward_pass(inputs,a);
@@ -327,6 +326,7 @@ bool acc_iteration(int textindex, NN &hopeless){
 
 void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     hopeless.neural_net_clear();
+    hopeless.pre_activations_clear();
     int len;
     if ((data_points[textindex].length()  % 10) == 0)
     {
@@ -340,6 +340,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     std::vector<std::vector<float>> output(len);
     std::vector<std::vector<float>> dl(len);
     std::vector<std::vector<float>> forwardpass_states(len);
+    std::vector<std::vector<float>> forwardpass_pa(len);
     if (labels[textindex] == "Positive")
     {
         for (int i = 0; i < len; i++)
@@ -392,6 +393,8 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     {
         forwardpass_states[i].reserve(hopeless.neural_net.size());
         forwardpass_states[i].resize(hopeless.neural_net.size(),0);
+        forwardpass_pa[i].reserve(hopeless.neural_net.size());
+        forwardpass_pa[i].reserve(hopeless.neural_net.size());
     }
     int fpasscount = 0;
     for (int i = 0; i < data_points[textindex].length(); i+=10)
@@ -405,7 +408,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
             std::string chra = "";
             chra += data_points[textindex][j];
             chara_convert7(chara,input_convert(chra));
-            inputs[index + 0] += chara[0];
+            inputs[index +0] += chara[0];
             inputs[index +1] += chara[1];
             inputs[index +2] += chara[2];
             inputs[index +3] += chara[3];
@@ -414,10 +417,11 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
             inputs[index +6] += chara[6];
             index += 7;
         }
-        hopeless.forward_pass(inputs,a);
+        hopeless.forward_pass_s_pa(inputs,a);
         for (int j = 0; j < hopeless.neural_net.size(); j++)
         {
             forwardpass_states[fpasscount][j] = hopeless.neural_net[j].output;
+            forwardpass_pa[fpasscount][j] = hopeless.pre_activations[j];
         }
         for (int j = 0; j < hopeless.output_index.size(); j++)
         {
@@ -433,8 +437,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     {
         forwardpass_states[len -1][hopeless.output_index[j]] = output[len -1][j];
     }
-    hopeless.bptt(forwardpass_states,dl,0,10);
-    //hopeless.bptt_softsign_gradient(forwardpass_states,dl,learning_rate,0.9,0,10);
+    hopeless.bptt(forwardpass_states,forwardpass_pa,dl,0,10);
 }
 
 
@@ -650,6 +653,7 @@ int main(){
                 std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
                 std::cout<<std::flush;
                 epc++;
+                l_r = l_r * 0.96;   //exponential decay
             }
         }    
     }
