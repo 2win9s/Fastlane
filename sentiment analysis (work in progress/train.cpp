@@ -394,7 +394,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
         forwardpass_states[i].reserve(hopeless.neural_net.size());
         forwardpass_states[i].resize(hopeless.neural_net.size(),0);
         forwardpass_pa[i].reserve(hopeless.neural_net.size());
-        forwardpass_pa[i].reserve(hopeless.neural_net.size());
+        forwardpass_pa[i].resize(hopeless.neural_net.size(),0);
     }
     int fpasscount = 0;
     for (int i = 0; i < data_points[textindex].length(); i+=10)
@@ -423,6 +423,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
             forwardpass_states[fpasscount][j] = hopeless.neural_net[j].output;
             forwardpass_pa[fpasscount][j] = hopeless.pre_activations[j];
         }
+        hopeless.pre_activations_clear();
         for (int j = 0; j < hopeless.output_index.size(); j++)
         {
             output[fpasscount][j] = hopeless.neural_net[hopeless.output_index[j]].output;
@@ -437,7 +438,7 @@ void tr_iteration(int textindex, NN &hopeless, float learning_rate){
     {
         forwardpass_states[len -1][hopeless.output_index[j]] = output[len -1][j];
     }
-    hopeless.bptt(forwardpass_states,forwardpass_pa,dl,0,10);
+    hopeless.bptt(forwardpass_states,forwardpass_pa,dl,re_leak,10);
 }
 
 
@@ -653,7 +654,7 @@ int main(){
                 std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
                 std::cout<<std::flush;
                 epc++;
-                l_r = l_r * 0.96;   //exponential decay
+                l_r = l_r * 0.9;   //exponential decay
             }
         }    
     }
