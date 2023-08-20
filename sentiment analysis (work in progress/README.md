@@ -8,4 +8,4 @@ The content of the csv file have been extracted and split into the text.txt and 
 
 
 
-UPDATE: yet another bug caught, wasn't storing pre activstionms correctly, was using .reserve on a vector instead of .resize , so when you try and access it it is out of index but at the same time it doesn't corrupt things
+UPDATE: many more bugs in code, trying to optimise C++ code is a nightmare, I've got more bugs than a wasp nest
