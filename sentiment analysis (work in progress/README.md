@@ -8,4 +8,4 @@ The content of the csv file have been extracted and split into the text.txt and 
 
 
 
-UPDATE: many more bugs in code, trying to optimise C++ code is a nightmare, I've got more bugs than a wasp nest
+UPDATE: many more bugs in code, trying to optimise C++ code is a nightmare, I've got more bugs than a wasp nest. I should also use a profiler but trying to minimise unecessary memory allocations as a rule of thumb seems to speed things up quite nicely
