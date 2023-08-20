@@ -41,6 +41,7 @@ struct NN
 
 
     std::vector<neuron> neural_net;         //firing order is order of index by default
+    std::vector<float> pre_activations;
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<int> memory_index;          //indexing recording the neurons that add on their previous state
@@ -84,14 +85,16 @@ struct NN
     void neural_net_clear();
     void momentum_clear();
     void gradient_clear();
-    
+    void pre_activations_clear();
+
     //activation of neuron at index n
     void neuron_activation(int n, float a = 0);
     float loss(std::vector<float> & output, std::vector<float> & target, int loss_f = 0);
     void forward_pass(std::vector<float> &inputs, float a = 0);
+    void forward_pass_s_pa(std::vector<float> &inputs, float a = 0);    //save the pre activation
 
     //back propgation through time, no weight updates, only gradient
-    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
+    void bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
     
     //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
     void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 5, std::vector<bool> freeze_neuron = {});

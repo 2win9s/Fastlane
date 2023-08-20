@@ -183,6 +183,7 @@ float NN::He_initialisation(int n, float a){
 //constructor for neural net struct
 NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, std::vector<int> memory_neurons, float connection_density, float connection_sd)
     :neural_net(size,neuron(0,0,{},"ReLU6"))
+    ,pre_activations(size,0)
     ,momentumW(size)
     ,momentumB(size,0)
     ,input_index(input_neurons)
@@ -292,6 +293,10 @@ void NN::momentum_clear(){
     }
 }
 
+void NN::pre_activations_clear(){
+    std::fill(pre_activations.begin(),pre_activations.end(),0);
+}
+
 void NN::gradient_clear(){
     for (int i = 0; i < bias_g.size(); i++)
     {
@@ -390,6 +395,34 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
     } 
 }
 
+void NN::forward_pass_s_pa(std::vector<float> &inputs, float a){
+    for (int i = 0; i < input_index.size(); i++)
+    {
+        neural_net[input_index[i]].output = inputs[i];
+    }
+    for (int i = 0; i < layermap.size(); i++)
+    {
+        for (int j = 0; j < layermap[i].size(); j++)
+        {   
+            if (neural_net[layermap[i][j]].memory || neural_net[layermap[i][j]].input_neuron)
+            {
+                neural_net[layermap[i][j]].output = neural_net[layermap[i][j]].output;
+            }
+            else{
+                neural_net[layermap[i][j]].output = 0;
+            } 
+            for (int l = 0; l < neural_net[layermap[i][j]].weights.size(); l++)
+            {
+                //apologies for the naming scheme
+                neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].weights[l].value * neural_net[neural_net[layermap[i][j]].weights[l].index].output;
+            }
+            neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].bias;
+            pre_activations[layermap[i][j]] = neural_net[layermap[i][j]].output;
+            neural_net[layermap[i][j]].activation_function(a);
+        }
+    } 
+}
+
 float standard_normal_pdf(float x){
     const double sqrt1_2pi = 0.3989422804014327;
     return (sqrt1_2pi * std::exp(x * x * -0.5));
@@ -428,7 +461,7 @@ float NN::neuron::act_func_derivative(float x, float a){
 }
 
 //back propgation through time, no weight updates, only gradient
-void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
+void NN::bptt(std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
     weights_gradient.resize(neural_net.size());
     for (int i = 0; i < weights_gradient.size(); i++)
@@ -459,7 +492,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
             for (int k = 0; k < layermap[j].size(); k++)
             {
                 float dldz = neuron_gradient[i][layermap[j][k]] 
-                * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[i][layermap[j][k]],ReLU_leak);
+                * neural_net[layermap[j][k]].act_func_derivative(forwardpass_pa[i][layermap[j][k]],ReLU_leak);
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
                 neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
@@ -484,7 +517,7 @@ void NN::bptt(std::vector<std::vector<float>> &forwardpass_states, std::vector<s
     {
         for (int k = 0; k < layermap[j].size(); k++)
         {
-            float dldz = neuron_gradient[0][layermap[j][k]] * neural_net[layermap[j][k]].act_func_derivative(forwardpass_states[0][layermap[j][k]],ReLU_leak);
+            float dldz = neuron_gradient[0][layermap[j][k]] * neural_net[layermap[j][k]].act_func_derivative(forwardpass_pa[0][layermap[j][k]],ReLU_leak);
             bias_gradient[layermap[j][k]] += dldz;
             for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
@@ -856,6 +889,7 @@ NN::NN(std::string file_name)
     file >> str_data;
     file >> str_data;
     neural_net.resize(std::stoi(str_data),neuron(0,0,{},"ReLU6"));
+    pre_activations.resize(std::stoi(str_data),0);
     file >> str_data;
     while (true)
     {
