@@ -119,7 +119,31 @@ struct NN
     void ensure_connection(int c_step_size ,bool io = true, bool im = true, bool mo = true, bool rc = true);
 };
 
+struct NNclone
+{
+    std::vector<float> neuron_states;
+    std::vector<float> pre_activations;
+    std::vector<std::vector<float>> weights_g;
+    std::vector<float> bias_g;   
+    std::vector<std::vector<float>> neuron_gradient;
+    
+    std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
+    std::vector<float>  bias_gradient;                  //reducing memory allocations and deallocations
+    
+    NNclone();
+    NNclone(const NN &cloned);
 
+
+    void neural_net_clear();
+    void gradient_clear();
+    void pre_activations_clear();
+
+    void forward_pass(const NN &cloned,std::vector<float> &inputs, float a = 0);
+    void forward_pass_s_pa(const NN &cloned,std::vector<float> &inputs, float a = 0);    //save the pre activation
+    void bptt(const NN &cloned,int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
+
+    void sync(const NN &cloned);
+};
 
 
 
