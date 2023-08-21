@@ -550,6 +550,8 @@ int main(){
     float avg_loss_val_b;
     float avg_acc_tr_b;
     float avg_acc_val_b;
+    float momentum0 = 0.8;
+    float mt = momentum0;
     #pragma omp parallel
     {
         //decalration of thread private variables, lost of stuff here to reduce the amount of memory allocations and de allocations
@@ -643,7 +645,7 @@ int main(){
                         }
                     }
 
-                    hopeless[0].update_momentum(0.9);
+                    hopeless[0].update_momentum(mt);
                     
                     hopeless[0].update_parameters(l_r);
                     //hopeless[0].l1_reg(0.000001);
@@ -672,7 +674,8 @@ int main(){
                 std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
                 std::cout<<std::flush;
                 epc++;
-                l_r = lr0 /(1 + 0.1*epc);   //exponential decay
+                l_r = lr0 /(1 + 0.15*epc);   //decay
+                mt = momentum0/(1 + 0.15*epc);
                 if ((epc % 10 == 0 )&(epc != 0))
                 {
                     parameter_check(hopeless[0]);
