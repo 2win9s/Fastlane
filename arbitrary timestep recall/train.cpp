@@ -1,28 +1,82 @@
-/*Getting this thing to converge abnd gett the loss down was painfully difficult, as you can see I hvae implemented many things to try 
-and coerce it out of local minima, I even had to resort to a randomly changing the weights at some points but in the end we ended up with
-something that works, but it has 300+ parameters just to record 1 number...
-so the input neurons are {0,1,2}, the output neuron is {21} and the "memory" neuron is {11}
-when the input is {x,1,0}, the neural net remembers x and the output will be x when the input is {0,2,0}
-to forget the number x set the input to {0,0,6} before {y,1,0} is given as input to forget x and then record y*/
-
-
 #include"NN.hpp"
+
 #include<windows.h>
 #include<iostream>
 #include<vector>
 #include<cmath>
 #include<string>
 #include<random>
+#include<fstream>
+#include<algorithm>
 
-std::random_device rd;                          
-std::mt19937 mtwister(rd());
-std::uniform_real_distribution<float> rand06(0,6);      //the neural net is using ReLU capped at 6 as the activation function for all neurons, so this range is to ensure it can be expressed
+#include<omp.h>
 
-//the name of the neural network is hopeless, just like its architecture
-NN hopeless("echo.txt"); 
+NN stoopid("stoopid.txt");
+
+float a = 0;
+float re_leak = 0;
+
+const float max_val = 10000000000;
+const float n_zero = 0.0001; //try and stop things from freaking out 
+
+std::vector<std::string> characters = {" ","!","\"","#","$","%","&","'","(",")","*","+",",","-",".","/","0","1","2","3","4","5","6","7","8","9",":",";","<","=",">","?","@","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","[","\\","]","^","_","`","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","y","z","{","|","}","~"};
+
+std::vector<std::string> data_points(60000);
+std::vector<std::string> labels(60000);
+
+std::uniform_int_distribution<int> randtrain(0,39999);   //the first 40thousand data points will be training data
+std::uniform_int_distribution<int> randval(40000,50000); //this is the validation data
+
+void load_data(){
+    std::ifstream data("text.txt");
+    std::ifstream label("label.txt");
+    for (int i = 0; i < 60000; i++)
+    {
+        std::getline(data,data_points[i]);
+    }
+    data.close();
+    for (int i = 0; i < 60000; i++)
+    {
+        std::getline(label,labels[i]);
+    }
+    label.close();
+}
+
+void shuffle_tr_data(){
+    std::uniform_int_distribution<int> rint(0,39998);
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    for(int i = 0; i < 40000; i++){
+        int swappos = rint(mtwister);
+        swappos = (swappos >= i) ? swappos+1:swappos;
+        std::swap(data_points[i],data_points[swappos]);
+        std::swap(labels[i],labels[swappos]);
+    }
+}
 
 
-void parameter_check(){
+uint8_t input_convert(std::string s){
+    for (uint8_t i = 0; i < characters.size(); i++)
+    {
+        if (s == characters[i])
+        {
+            return i;
+        }    
+    }
+    return 0;   //default to whitespace if it isn't printable ascii    
+}
+
+void chara_convert7(bool (&chara)[7],uint8_t x){
+    chara[0] = (1 & (x >> 0));
+    chara[1] = (1 & (x >> 1));
+    chara[2] = (1 & (x >> 2));
+    chara[3] = (1 & (x >> 3));
+    chara[4] = (1 & (x >> 4));
+    chara[5] = (1 & (x >> 5));
+    chara[6] = (1 & (x >> 6));
+}
+
+void parameter_check(NN &hopeless){
     double w_mean = 0;
     double w_variance = 0;
     double b_mean = 0;
@@ -57,10 +111,10 @@ void parameter_check(){
     std::cout<<" variance of weights "<<w_variance<<"\n";
     std::cout<<"mean bias "<<b_mean;
     std::cout<<" variance of bias "<<b_variance<<"\n";
-    std::cout<<"number of weights"<<w_count<<std::endl;
+    std::cout<<"number of weights "<<w_count<<std::endl;
 }
 
-void momentum_check(){
+void momentum_check(NN &hopeless){
     double w_moment = 0;
     double b_moment = 0;
     for (int i = 0; i < hopeless.momentumW.size(); i++)
@@ -74,119 +128,375 @@ void momentum_check(){
     std::cout<<b_moment<<std::endl;
 }
 
-//an iteration to measure the loss
-float iteration(int record_timestep, int recall_timestep,bool print = false){
-    float loss;
-    std::vector<float> inputs(3,0);
-    std::vector<float> target(1,0);
-    std::vector<float> output(1,0);
-    std::uniform_int_distribution<int> randint10(0,10);
-    int forget_timestep = randint10(mtwister);
-    for (int i = 0; i < recall_timestep; i++)
-    {
-        if (i == record_timestep - 1)
-        {
-            inputs[0] = rand06(mtwister);       //the value we want the neural net to remember
-            inputs[1] = 1;                      //this is to tell the neural net to remember
-            target[0] = inputs[0];
-            inputs[2] = 0;
-        }
-        else if (i == record_timestep - 2 - forget_timestep)
-        {
-            inputs[0] = 0;
-            inputs[1] = 0;                      
-            inputs[2] = 6;
-        }
-        else if (i == recall_timestep - 1)
-        {
-            inputs[0] = 0;
-            inputs[1] = 2;                      //to tell the neural net to spit out the recorded value
-            inputs[2] = 0;
-        }
-        else{
-            inputs[0] = 0;
-            inputs[1] = 0;
-            inputs[2] = 0;
+bool broken_float(float x){
+    if (std::isnan(x)){
+        return true;
+    }
+    else if (std::isinf(x)){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
 
-        }
-        hopeless.forward_pass(inputs);
-    }
-    output[0] = hopeless.neural_net[hopeless.output_index[0]].output;
-    loss = hopeless.loss(output,target,0);
-    if (print)
+void soft_max(std::vector<float> &output){
+    double denominator = 0;
+    std::vector<float> expout(3);
+    for (int i = 0; i < output.size(); i++)
     {
-        std::cout<<"output "<<output[0]<<"\n";
-        std::cout<<"target "<<target[0]<<"\n";
-        std::cout<<std::endl;
+        expout[i] = std::exp(output[i]);
+        if (broken_float(expout[i]))
+        {
+            expout[i] = max_val;
+        }
+        denominator += expout[i]; 
     }
-    
+    denominator = 1 / denominator; 
+    for (int i = 0; i < output.size(); i++)
+    {
+        output[i] = expout[i] * denominator;
+    }
+}
+
+void dl_softmax(std::vector<float> &output, std::vector<float> &target, std::vector<float> &dl){
+    dl[0] = output[0] - target[0];
+    dl[1] = output[1] - target[1];
+    dl[2] = output[2] - target[2]; 
+}
+
+bool wow(std::vector<float> &output, std::vector<float> &target){
+    int guess;
+    int answer;
+    guess = std::distance(output.begin(),std::max_element(output.begin(),output.end()));
+    answer = std::distance(target.begin(),std::max_element(target.begin(),target.end()));
+    if (guess == answer){return true;}
+    else{return false;}
+}
+
+//what is the difference between cross entrophy and log likelihood? at this point I'm too afraid to ask
+float soft_max_loss(std::vector<float> &output, std::vector<float> &target){
+    double loss = 0;
+    if (output[0] <= n_zero)
+    {
+        output[0] = n_zero;          
+    }
+    if (output[1] <= n_zero)
+    {
+        output[1] = n_zero;          
+    }
+    if (output[2] <= n_zero)
+    {
+        output[2] = n_zero;          
+    }
+    loss += target[0] * std::log(output[0]);
+    loss += target[1] * std::log(output[1]);
+    loss += target[2] * std::log(output[2]);
+    loss  = -1 * loss;
     return loss;
 }
 
-void tr_iteration(int record_timestep, int recall_timestep, float a, float re_leak){
-    std::vector<float> inputs(3,0);
-    std::uniform_int_distribution<int> randint10(0,10);
-    int forget_timestep = randint10(mtwister);
-    std::vector<std::vector<float>> target(recall_timestep);
-    std::vector<std::vector<float>> forwardpass_states(recall_timestep);
-    std::vector<std::vector<float>> dl(recall_timestep);
-    for (int i = 0; i < forwardpass_states.size(); i++)
+float loss_iteration(int textindex, NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    hopeless.neural_net_clear();
+    int len = data_points[textindex].length();
+    float loss;
+    if (labels[textindex] == "Positive")
     {
-        forwardpass_states[i].reserve(hopeless.neural_net.size());
-        forwardpass_states[i].resize(hopeless.neural_net.size(),0);
+        target[0] = 1;
+        target[1] = 0;
+        target[2] = 0;
     }
-    for (int i = 0; i < target.size(); i++)
+    else if (labels[textindex] == "Negative")
     {
-        target[i].reserve(1);
-        target[i].resize(1,0);
-        dl[i].reserve(1);
-        dl[i].resize(1,0);
+        target[0] = 0;
+        target[1] = 1;
+        target[2] = 0;
     }
-    
-    for (int i = 0; i < recall_timestep; i++)
+    else if (labels[textindex] == "Neutral")
     {
-        if (i == record_timestep - 1)
-        {
-            inputs[0] = rand06(mtwister);
-            inputs[1] = 1;
-            target[recall_timestep - 1][0] = inputs[0];
-            inputs[2] = 0; 
-        }
-        else if (i == record_timestep - 2 - forget_timestep)
-        {
-            inputs[0] = 0;
-            inputs[1] = 0;                      
-            inputs[2] = 6;
-        }
-        else if (i == recall_timestep - 1)
-        {
-            inputs[0] = 0;
-            inputs[1] = 2;
-            inputs[2] = 0;
-        }
-        else
-        {
-            inputs[0] = rand06(mtwister);
-            inputs[1] = 0;
-            inputs[2] = 0;
-        }
-        hopeless.forward_pass(inputs,a);
-        for (int j = 0; j < hopeless.neural_net.size(); j++)
-        {
-            forwardpass_states[i][j] = hopeless.neural_net[j].output;
-        }
+        target[0] = 0;
+        target[1] = 0;
+        target[2] = 1;
     }
-    for (int i = 0; i < target.size(); i++)
+    else{
+        std::cout<<"ERROR!!!!!!, label"<<std::endl;
+        std::cout<<labels[textindex]<<std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    bool chara[7];
+    for (int i = 0; i < data_points[textindex].length(); i+=10)
     {
-        if (i == recall_timestep - 1)
+        std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
+        //just tiling the loop, we read 10 characters at a time
+        int index = 0;
+        for (int j = i; j < (((i + 10) < len) ? (i + 10):len); j++)
         {
-            dl[i][0] += (forwardpass_states[i][hopeless.output_index[0]] - target[i][0]) * 4;  
-        } 
-    }  
-    hopeless.bptt(forwardpass_states,dl,0,1);
+            std::string chra = "";
+            chra += data_points[textindex][j];
+            chara_convert7(chara,input_convert(chra));
+            inputs[index ] += chara[0];
+            inputs[index + 1] += chara[1];
+            inputs[index + 2] += chara[2];
+            inputs[index + 3] += chara[3];
+            inputs[index + 4] += chara[4];
+            inputs[index + 5] += chara[5];
+            inputs[index + 6] += chara[6];
+            index += 7;
+        }
+        hopeless.forward_pass(stoopid,inputs,a);
+    }
+    for (int i = 0; i < stoopid.output_index.size(); i++)
+    {
+        output[i] = hopeless.neuron_states[stoopid.output_index[i]];
+    }
+    soft_max(output);
+    loss = soft_max_loss(target,output); 
+    return loss;   
 }
 
-void bias_reg(float param){
+bool acc_iteration(int textindex, NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    hopeless.neural_net_clear();
+    int len = data_points[textindex].length();
+    if (labels[textindex] == "Positive")
+    {
+        target[0] = 1;
+        target[1] = 0;
+        target[2] = 0;
+    }
+    else if (labels[textindex] == "Negative")
+    {
+        target[0] = 0;
+        target[1] = 1;
+        target[2] = 0;
+    }
+    else if (labels[textindex] == "Neutral")
+    {
+        target[0] = 0;
+        target[1] = 0;
+        target[2] = 1;
+    }
+    else{
+        std::cout<<"ERROR!!!!!!, label"<<std::endl;
+        std::cout<<labels[textindex]<<std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+    bool chara[7];
+    for (int i = 0; i < data_points[textindex].length(); i+=10)
+    {
+        std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
+        //just tiling the loop, we read 10 characters at a time
+        int index = 0;
+        for (int j = i; j < (((i + 10) < len) ? (i + 10):len); j++)
+        {
+            std::string chra = "";
+            chra += data_points[textindex][j];
+            chara_convert7(chara,input_convert(chra));
+            inputs[index + 0] += chara[0];
+            inputs[index +1] += chara[1];
+            inputs[index +2] += chara[2];
+            inputs[index +3] += chara[3];
+            inputs[index +4] += chara[4];
+            inputs[index +5] += chara[5];
+            inputs[index +6] += chara[6];
+            index += 7;
+        }
+        hopeless.forward_pass(stoopid,inputs,a);
+    }
+    for (int i = 0; i < stoopid.output_index.size(); i++)
+    {
+        output[i] = hopeless.neuron_states[stoopid.output_index[i]];
+    }
+    soft_max(output);
+    bool correct;
+    correct = wow(target,output);
+    return correct;   
+}
+
+void tr_iteration(int textindex, NNclone &hopeless, float learning_rate,std::vector<float> &inputs,std::vector<std::vector<float>> &target,std::vector<std::vector<float>> &output,std::vector<std::vector<float>> &dl,std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> forwardpass_pa){
+    hopeless.neural_net_clear();
+    hopeless.pre_activations_clear();
+    int len;
+    if ((data_points[textindex].length()  % 10) == 0)
+    {
+        len = std::floor(data_points[textindex].length() / 10);
+    }
+    else{
+        len = std::floor(data_points[textindex].length() / 10) + 1;
+    }
+    int c_size = target.size();
+    c_size = (len>c_size) ? len:c_size;
+    target.resize(c_size);
+    output.resize(c_size);
+    dl.resize(c_size);
+    forwardpass_states.resize(c_size);
+    forwardpass_pa.resize(c_size);
+    if (labels[textindex] == "Positive")
+    {
+        for (int i = 0; i < len; i++)
+        {
+            target[i].resize(3);
+            target[i][0] = 1;
+            target[i][1] = 0;
+            target[i][2] = 0; 
+        }
+    }
+    else if (labels[textindex] == "Negative")
+    {
+        for (int i = 0; i < len; i++)
+        {
+            target[i].resize(3);
+            target[i][0] = 0;
+            target[i][1] = 1;
+            target[i][2] = 0; 
+        }
+    }
+    else if (labels[textindex] == "Neutral")
+    {
+        for (int i = 0; i < len; i++)
+        {
+            target[i].resize(3);
+            target[i][0] = 0;
+            target[i][1] = 0;
+            target[i][2] = 1; 
+        }
+    }
+    else{
+        std::cout<<"ERROR!!!!!!, label"<<std::endl;
+        std::cout<<labels[textindex]<<std::endl;
+        std::exit(EXIT_FAILURE);        
+    }    
+    for (int i = 0; i < len; i++)
+    {
+        output[i].resize(3);
+        output[i][0] = 0;
+        output[i][1] = 0;
+        output[i][2] = 0;
+    }
+    for (int i = 0; i < len; i++)
+    {
+        dl[i].resize(3);
+        dl[i][0] = 0;
+        dl[i][1] = 0;
+        dl[i][2] = 0;
+    }
+    for (int i = 0; i < len; i++)
+    {
+        forwardpass_states[i].resize(stoopid.neural_net.size());
+        forwardpass_pa[i].resize(stoopid.neural_net.size());
+        std::fill(forwardpass_states[i].begin(),forwardpass_states[i].end(),0);
+        std::fill(forwardpass_pa[i].begin(),forwardpass_pa[i].end(),0);
+    }
+    int fpasscount = 0;
+    bool chara[7];
+    std::string chra = "";
+    for (int i = 0; i < data_points[textindex].length(); i+=10)
+    {
+        std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
+        //just tiling the loop, we read 10 characters at a time
+        int index = 0;
+        for (int j = i; j < (((i + 10) < data_points[textindex].length()) ? (i + 10):data_points[textindex].length()); j++)
+        {
+            chra = "";
+            chra += data_points[textindex][j];
+            chara_convert7(chara,input_convert(chra));
+            inputs[index] += chara[0];
+            inputs[index +1] += chara[1];
+            inputs[index +2] += chara[2];
+            inputs[index +3] += chara[3];
+            inputs[index +4] += chara[4];
+            inputs[index +5] += chara[5];
+            inputs[index +6] += chara[6];
+            index += 7;
+        }
+        hopeless.forward_pass_s_pa(stoopid, inputs,a);
+        for (int j = 0; j < stoopid.neural_net.size(); j++)
+        {
+            forwardpass_states[fpasscount][j] = hopeless.neuron_states[j];
+            forwardpass_pa[fpasscount][j] = hopeless.pre_activations[j];
+        }
+        for (int j = 0; j < stoopid.output_index.size(); j++)
+        {
+            output[fpasscount][j] = hopeless.neuron_states[stoopid.output_index[j]];
+        }     
+        fpasscount++;   
+    }
+    soft_max(output[len -1]);   //only last prediction matters
+
+    dl_softmax(output[len -1], target[len -1], dl[len -1]); 
+
+    for (int j = 0; j < stoopid.output_index.size(); j++)
+    {
+        forwardpass_states[len -1][stoopid.output_index[j]] = output[len -1][j];
+    }
+    hopeless.bptt(stoopid,len,forwardpass_states,forwardpass_pa,dl,re_leak,10);
+}
+
+
+float avg_loss_tr(NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    float loss = 0;
+    for (int i = 0; i < 40000; i++)
+    {
+        if (data_points[i].size() == 0)
+        {
+            continue;
+        }
+        loss += loss_iteration(i,hopeless,inputs,target,output);
+    }
+    return loss/40000;
+}
+
+float avg_loss_val(NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    float loss = 0;
+    for (int i = 40000; i < 50000; i++)
+    {
+        if (data_points[i].size() == 0)
+        {
+            continue;
+        }
+        loss += loss_iteration(i,hopeless,inputs,target,output);
+    }
+    return loss/10000;
+}
+
+float avg_acc_tr(NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    float acc = 0;
+    for (int i = 0; i < 40000; i++)
+    {
+        if (data_points[i].size() == 0)
+        {
+            continue;
+        }
+        acc += acc_iteration(i,hopeless,inputs,target,output);
+    }
+    acc = acc/40000;
+    return acc;
+}
+
+float avg_acc_val(NNclone &hopeless,std::vector<float> &inputs,std::vector<float> &target,std::vector<float> &output){
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    float acc = 0;
+    for (int i = 40000; i < 50000; i++)
+    {
+        if (data_points[i].size() == 0)
+        {
+            continue;
+        }
+        
+        acc += acc_iteration(i,hopeless,inputs,target,output);
+    }
+    acc = acc / 10000;
+    return acc;
+}
+
+
+void bias_reg(float param,NN &hopeless){
     for (int i = 0; i < hopeless.neural_net.size(); i++)
     {
         hopeless.neural_net[i].bias -= param * hopeless.neural_net[i].bias;
@@ -194,7 +504,9 @@ void bias_reg(float param){
     
 }
 
-void bias_noise(float sigma){
+void bias_noise(float sigma,NN &hopeless){
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
     std::normal_distribution<float> ra(0,sigma);
     for (int i = 0; i < hopeless.neural_net.size(); i++)
     {
@@ -202,173 +514,235 @@ void bias_noise(float sigma){
     }
     
 }
-/*
-void random_search(std::uniform_int_distribution<int> re_tsp_dist,std::uniform_int_distribution<int> rtimestep, int timestep_gap){
-    float ball_park_l = 0;
-    for (int i = 0; i < 10000000; i++)
-    {
-        NN hope("seed.txt");
-        hopeless = hope;
-        hopeless.weight_noise(0.01);
-        //bias_noise(0.0001);
-        float avg_loss20000 = 0;
-        for (int j = 0; j < 20000; j++)
-        {
-            int recordtimestp = re_tsp_dist(mtwister);
-            int recalltimstp = recordtimestp + rtimestep(mtwister);
-            avg_loss20000 += iteration(recordtimestp,recalltimstp);    
-        }
-        avg_loss20000 = avg_loss20000 / 20000;
-        ball_park_l += avg_loss20000;
-        if (i % 1000 == 999)
-        {
-            std::cout<<ball_park_l / 1000<<std::endl;
-            ball_park_l = 0;
-        }
-        
-        if (avg_loss20000 < 0.9)
-        {
-            for (int k = 0; k < 10; k++)
-            {
-                int recordtimestp = re_tsp_dist(mtwister);
-                int recalltimstp = recordtimestp + timestep_gap;
-                iteration(recordtimestp,recalltimstp,true);    
-            }
-            parameter_check();
-            std::cout<<"average loss over 10000 iterations "<<avg_loss20000<<std::endl;    
-            std::string save_filename;
-            std::cout<<"Enter name of file to save to"<<std::endl;
-            std::cin>>save_filename;
-            hopeless.save(save_filename);
-        }
-    }
-    
-}
-*/
 
-float avg_loss(std::uniform_int_distribution<int> re_tsp_dist,std::uniform_int_distribution<int> rtimestep, int timestep_gap){
-    float avg_loss10000 = 0;
-    for (int i = 0; i < 10000; i++)
-    {
-        int recordtimestp = re_tsp_dist(mtwister);
-        int recalltimstp = recordtimestp + timestep_gap;
-        avg_loss10000 += iteration(recordtimestp,recalltimstp);        
-    }  
-    avg_loss10000 = avg_loss10000 / 10000;
-    return avg_loss10000;
-}
-
-void prune_lowest(){
-    float lowest = 20000000;
-    int l_index;
-    int neuron;
-    for (int i = 0; i < hopeless.neural_net.size(); i++)
-    {
-        for (int j = 0; j < hopeless.neural_net[i].weights.size(); j++)
-        {
-            if(std::abs(hopeless.neural_net[i].weights[j].value) < lowest){
-                lowest = std::abs(hopeless.neural_net[i].weights[j].value);
-                l_index = hopeless.neural_net[i].weights[j].index;
-                neuron = i;
-            }
-        }
-    }
-    hopeless.neural_net[neuron].weights.erase(hopeless.neural_net[neuron].weights.begin()  + l_index);
-    hopeless.momentumW[neuron].pop_back();
-    hopeless.weights_gradient[neuron].pop_back();
-    hopeless.layermap_sync();
-    hopeless.momentum_clear();
+float He_initialisation(int n, float a){
+    float w_variance = 2/ (n * (1 + a*a));  //I understand that this is absolutely not the correct use of this initialisation strategy but alas it might work
+    return w_variance;
 }
 
 int main(){
-    int timestep_gap;
-    std::uniform_int_distribution<int> re_tsp_dist(12,20);
-    int cycles;
-    float learning_rate;
-    float a = 0;
-    float re_leak = 0;
-    std::cout<<"number of cycles"<<std::endl;
-    std::cin>>cycles;
+    load_data(); 
+    std::vector<NNclone> hopeless(8,NNclone(stoopid));    //mini batch size of 8
+    omp_set_num_threads(hopeless.size());    
+    int epochs;
+    float l_r;
+    std::cout<<"number of epochs"<<std::endl;
+    std::cin>>epochs;
     std::cout<<"learning rate"<<std::endl;
-    std::cin>>learning_rate;
-    std::cout<<"timesteps between record and recall"<<std::endl;
-    std::cin>>timestep_gap;
-    std::uniform_int_distribution<int> rtimestep(0,timestep_gap);
-    //random_search(re_tsp_dist,rtimestep,timestep_gap);
-    parameter_check();
-    //prune_lowest();
-    for (int i = 0; i < cycles; i++)
+    std::cin>>l_r; 
+    float lr0 = l_r;
+    int progress = 4000;    //for a progress bar for each epoch
+    
+    
+    int epc = 0;        //to replace the for loops with while loops using a shared variable
+    int t_set_itr = 0;  //to replace the for loops with while loops using a shared variable
+    float avg_loss_tr_b;
+    float avg_loss_val_b;
+    float avg_acc_tr_b;
+    float avg_acc_val_b;
+    float momentum0 = 0.8;
+    float mt = momentum0;
+    int minibatch_m = 1;
+    #pragma omp parallel
     {
-        //learning_rate = learning_rate * 0.9995;
-        int recordtimestp = re_tsp_dist(mtwister);
-        int recalltimestp = recordtimestp + rtimestep(mtwister);    
-        tr_iteration(recordtimestp,recalltimestp,a,re_leak);
-        /*if ((i < cycles/2 )&& (i % 100 == 50))
-        {
-            hopeless.l1_reg(0.00001);
-        }*/
+        //decalration of thread private variables, lost of stuff here to reduce the amount of memory allocations and de allocations
+        int thread_num;
+        thread_num = omp_get_thread_num();
+        std::vector<float> inputs(70,0);
+        std::vector<float> target(3,0);
+        std::vector<float> output(3,0);
+
+
+        std::vector<std::vector<float>> target_tr;
+        std::vector<std::vector<float>> output_tr;
+        std::vector<std::vector<float>> dl_tr;
+        std::vector<std::vector<float>> forwardpass_states_tr;
+        std::vector<std::vector<float>> forwardpass_pa_tr;
         
-        if (i % 100==99)
+        #pragma omp single
         {
-            if (i == 99)
+            std::cout<<"Generating Summary"<<std::endl;
+        }
+        
+        #pragma omp sections
+        {
+            #pragma omp section
             {
-                for (int j = 0; j < hopeless.bias_gradient.size(); j++)
+                avg_loss_tr_b = avg_loss_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_loss_val_b = avg_loss_val(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_acc_tr_b = avg_acc_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_acc_val_b = avg_acc_val(hopeless[thread_num],inputs,target,output);
+            }
+        }
+        #pragma omp barrier
+
+        #pragma omp single
+        {
+            parameter_check(stoopid); 
+            std::cout<<"average loss on training dataset before training "<<avg_loss_tr_b<<std::endl;
+            std::cout<<"average loss on validation dataset before training "<<avg_loss_val_b<<std::endl; 
+            std::cout<<"average accuracy on training dataset before training "<<avg_acc_tr_b<<std::endl;
+            std::cout<<"average accuracy on validation dataset before training "<<avg_acc_val_b<<std::endl;
+        }
+ 
+        while(epc < epochs)
+        {
+            #pragma omp single
+            {
+                shuffle_tr_data();
+                std::cout<<"Progress for this epoch..."<<std::flush;
+                t_set_itr = 0;
+            }
+
+            while(t_set_itr < 40000)
+            {       
+                #pragma omp for schedule(static)
+                for (int iiii = 0; iiii < hopeless.size() * minibatch_m; iiii++)
                 {
-                    hopeless.momentumB[j] = hopeless.bias_gradient[j];
-                }
-                for (int ii = 0; ii < hopeless.weights_gradient.size(); ii++)
-                {
-                    for (int j = 0; j < hopeless.weights_gradient[ii].size(); j++)
+                    int msg = t_set_itr + iiii;
+                    if (msg >= 40000)
                     {
-                        hopeless.momentumW[ii][j] = hopeless.weights_gradient[ii][j];
+                        continue;
                     }
                     
+                    if (data_points[msg].size() == 0)
+                    {
+                        continue;
+                    }
+                    tr_iteration(msg, hopeless[thread_num],l_r,inputs,target_tr,output_tr,dl_tr,forwardpass_states_tr,forwardpass_pa_tr); 
+                }
+                
+                #pragma omp barrier
+
+                #pragma omp single
+                {
+                    for (int z = 0; z < hopeless.size(); z++)
+                    {
+                        for (int j = 0; j < hopeless[0].bias_g.size(); j++)
+                        {
+                            stoopid.bias_g[j] += hopeless[z].bias_g[j];
+                        }
+
+                        for (int ii = 0; ii < hopeless[z].weights_g.size(); ii++)
+                        {
+                            for (int j = 0; j < hopeless[z].weights_g[ii].size(); j++)
+                            {
+                                stoopid.weights_g[ii][j] += hopeless[z].weights_g[ii][j];
+                            }                
+                        }
+                    }
+
+                    stoopid.update_momentum(mt);
+                    
+                    stoopid.update_parameters(l_r);
+                    stoopid.gradient_clear();
+
+                    for (int z = 0; z < hopeless.size(); z++)
+                    {
+                        hopeless[z].gradient_clear();
+                    }
+                    if(t_set_itr % 4000 == (4000 - hopeless.size() * minibatch_m)){
+                        std::cout<<"#"<<std::flush;
+                    }    
+                    t_set_itr += hopeless.size() * minibatch_m;
                 }
             }
-            else
+            #pragma omp single
             {
-                hopeless.update_momentum(0.9);
-                hopeless.update_parameters(learning_rate);
-                //hopeless.weight_noise(0.00001);
+                std::cout<<std::endl;
+                std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
+                std::cout<<std::flush;
+                epc++;
+                l_r = lr0 /(1 + 0.1*epc);   //decay
+                //mt = momentum0/(1 + 0.05*epc);
+                if ((epc % 10 == 0 )&(epc != 0))
+                {
+                    parameter_check(stoopid);
+                    float L = avg_loss_val(hopeless[0],inputs,target,output);
+                    std::cout<<"validation_loss"<<L<<std::endl;
+                    std::cout<<"saved to epoch "<<epc<<" loss "<< L<<std::endl;
+                    std::string f = "epoch " + std::to_string(epc) + " loss " + std::to_string(L) + ".txt";
+                    stoopid.save(f);
+                    if (epc % 20 == 0)
+                    {
+                        if (minibatch_m < 2048)
+                        {
+                            minibatch_m = minibatch_m * 2;
+                        }
+                    }
+                }
             }
         }
-    }  
 
-    float avg_loss10000 = 0;
-    for (int i = 0; i < 10000; i++)
-    {
-        int recordtimestp = re_tsp_dist(mtwister);
-        int recalltimstp = recordtimestp + timestep_gap;
-        avg_loss10000 += iteration(recordtimestp,recalltimstp);
-        if (i > 9990)
+        #pragma omp single
         {
-            iteration(recordtimestp,recalltimstp,true);
+            std::cout<<"\n";
+            std::cout<<"training complete"<<std::endl;
+            std::cout<<"Generating Summary"<<std::endl;
         }
         
+        #pragma omp sections
+        {
+            #pragma omp section
+            {
+                avg_loss_tr_b = avg_loss_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_loss_val_b = avg_loss_val(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_acc_tr_b = avg_acc_tr(hopeless[thread_num],inputs,target,output);
+            }
+            #pragma omp section
+            {
+                avg_acc_val_b = avg_acc_val(hopeless[thread_num],inputs,target,output);
+            }
+        }
+        #pragma omp barrier
+
+        #pragma omp single
+        {
+            parameter_check(stoopid);
+            std::cout<<"average loss on training dataset "<<avg_loss_tr_b<<std::endl;
+            std::cout<<"average loss on validation dataset "<<avg_loss_val_b<<std::endl; 
+            std::cout<<"average accuracy on training dataset "<<avg_acc_tr_b<<std::endl;
+            std::cout<<"average accuracy on validation dataset "<<avg_acc_val_b<<std::endl; 
+        }    
     }
-    parameter_check();
-    avg_loss10000 = avg_loss10000 / 10000;
-    std::cout<<"average loss over 10000 iterations "<<avg_loss10000<<std::endl;    
+    std::cout<<"\n";  
+    std::cout<<std::flush;
     std::string save_filename;
     while (true)
     {
-        std::cout<<"save? (y/n)"<<std::endl;
+        std::cout<<"save? (y/n) "<<std::endl;
         char yn;
         std::cin>>yn;
         if (yn == 'y')
         {
             std::cout<<"Enter name of file to save to"<<std::endl;
             std::cin>>save_filename;
-            hopeless.save(save_filename);
-            return 0;
+            stoopid.save(save_filename);
+            break;
         }
         else if (yn == 'n')
         {
-            return 0;
+            break;
         }
         else{
             std::cout<<"ERROR, enter y or n"<<std::endl;
-            Sleep(150);
+            Sleep(150); //in case you hold onto a key and this message fills the terminal
         }
     }
+    return 0;
 }
