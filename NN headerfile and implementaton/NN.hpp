@@ -42,6 +42,7 @@ struct NN
 
     std::vector<neuron> neural_net;         //firing order is order of index by default
     std::vector<float> act_func_derivatives;
+    std::vector<float> p_mmean;             //pre activation minus mean for layernorm
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<int> memory_index;          //indexing recording the neurons that add on their previous state
@@ -122,6 +123,7 @@ struct NN
 struct NNclone
 {
     std::vector<float> neuron_states;
+    std::vector<float> p_mmean; 
     std::vector<float> act_func_derivatives;
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
