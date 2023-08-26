@@ -183,7 +183,7 @@ float NN::He_initialisation(int n, float a){
 //constructor for neural net struct
 NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, std::vector<int> memory_neurons, float connection_density, float connection_sd)
     :neural_net(size,neuron(0,0,{},"ReLU6"))
-    ,pre_activations(size,0)
+    ,act_func_derivatives(size,0)
     ,momentumW(size)
     ,momentumB(size,0)
     ,input_index(input_neurons)
@@ -263,7 +263,6 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
     }
 }
 
-
 NN::NN()
     :neural_net(0,neuron(0,0,{},"ReLU6"))
     ,momentumW(0)
@@ -289,8 +288,8 @@ void NN::momentum_clear(){
     std::fill(momentumB.begin(),momentumB.end(),0);
 }
 
-void NN::pre_activations_clear(){
-    std::fill(pre_activations.begin(),pre_activations.end(),0);
+void NN::act_func_derivatives_clear(){
+    std::fill(act_func_derivatives.begin(),act_func_derivatives.end(),0);
 }
 
 void NN::gradient_clear(){
@@ -302,11 +301,9 @@ void NN::gradient_clear(){
 }
 
 float GELU(float pre_activation){
-    //float x = pre_activation; 
-    //float y = M_SQRT1_2 * (x + (0.044715 * x * x * x)); 
-    //return (0.5 * x * (1 + std::tanh(y)));
-    float CSND = 0.5 * (1 + std::erf(pre_activation * 0.707106781186547524402));     //0.70710678118654752440 = 1/sqrt(2)          
-    return (CSND * pre_activation);
+    float ex = std::exp(-1.702 * pre_activation);
+    ex = 1.0/ex;          
+    return (pre_activation * ex);
 }
 
 void NN::neuron::activation_function(float a){
@@ -321,7 +318,7 @@ void NN::neuron::activation_function(float a){
         output = (output > 0) ? output:a * output;
         break;
     case 2:
-        output = output;    //linear y = x
+        ;    //linear y = x
         break;
     default:
         output = (output > 0) ? output:a * output;
@@ -384,42 +381,12 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
     } 
 }
 
-void NN::forward_pass_s_pa(std::vector<float> &inputs, float a){
-    for (int i = 0; i < input_index.size(); i++)
-    {
-        neural_net[input_index[i]].output = inputs[i];
-    }
-    for (int i = 0; i < layermap.size(); i++)
-    {
-        for (int j = 0; j < layermap[i].size(); j++)
-        {   
-            if (neural_net[layermap[i][j]].memory || neural_net[layermap[i][j]].input_neuron)
-            {
-                neural_net[layermap[i][j]].output = neural_net[layermap[i][j]].output;
-            }
-            else{
-                neural_net[layermap[i][j]].output = 0;
-            } 
-            for (int l = 0; l < neural_net[layermap[i][j]].weights.size(); l++)
-            {
-                //apologies for the naming scheme
-                neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].weights[l].value * neural_net[neural_net[layermap[i][j]].weights[l].index].output;
-            }
-            neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].bias;
-            pre_activations[layermap[i][j]] = neural_net[layermap[i][j]].output;
-            neural_net[layermap[i][j]].activation_function(a);
-        }
-    } 
-}
-
-float standard_normal_pdf(float x){
-    const double sqrt1_2pi = 0.3989422804014327;
-    return (sqrt1_2pi * std::exp(x * x * -0.5));
-}
-
 inline float dGELU(float x){
-    float CSND = 0.5 * (1 + std::erf(x * 0.70710678118654752440)); 
-    return (CSND + (x * standard_normal_pdf(x)));
+    float ex = std::exp(1.702 * x); 
+    float recipex = 1/(ex + 1);
+    recipex = recipex * recipex;
+    float numerator = ex * (1.702 * x + ex + 1);
+    return (numerator * recipex);
 }
 
 inline float dReLU(float x, float a){
@@ -449,8 +416,41 @@ float NN::neuron::act_func_derivative(float x, float a){
         }
 }
 
+void NN::forward_pass_s_pa(std::vector<float> &inputs, float a){
+    for (int i = 0; i < input_index.size(); i++)
+    {
+        neural_net[input_index[i]].output = inputs[i];
+    }
+    for (int i = 0; i < layermap.size(); i++)
+    {
+        for (int j = 0; j < layermap[i].size(); j++)
+        {   
+            if (neural_net[layermap[i][j]].memory || neural_net[layermap[i][j]].input_neuron)
+            {
+                neural_net[layermap[i][j]].output = neural_net[layermap[i][j]].output;
+            }
+            else{
+                neural_net[layermap[i][j]].output = 0;
+            } 
+            for (int l = 0; l < neural_net[layermap[i][j]].weights.size(); l++)
+            {
+                //apologies for the naming scheme
+                neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].weights[l].value * neural_net[neural_net[layermap[i][j]].weights[l].index].output;
+            }
+            neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].bias;
+            act_func_derivatives[layermap[i][j]] = neural_net[layermap[i][j]].act_func_derivative(neural_net[layermap[i][j]].output,a);
+            neural_net[layermap[i][j]].activation_function(a);
+        }
+    } 
+}
+
+float standard_normal_pdf(float x){
+    const double sqrt1_2pi = 0.3989422804014327;
+    return (sqrt1_2pi * std::exp(x * x * -0.5));
+}
+
 //back propgation through time, no weight updates, only gradient, timestep is the timestep to start back prorpagating from, forwardpass_pa are the pre activations
-void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
+void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_d, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
     weights_gradient.resize(neural_net.size());
     for (int i = 0; i < weights_gradient.size(); i++)
@@ -477,7 +477,7 @@ void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,
             for (int k = 0; k < layermap[j].size(); k++)
             {
                 float dldz = neuron_gradient[i][layermap[j][k]] 
-                * neural_net[layermap[j][k]].act_func_derivative(forwardpass_pa[i][layermap[j][k]],ReLU_leak);
+                * forwardpass_d[i][layermap[j][k]];
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
                 neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
@@ -502,7 +502,7 @@ void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,
     {
         for (int k = 0; k < layermap[j].size(); k++)
         {
-            float dldz = neuron_gradient[0][layermap[j][k]] * neural_net[layermap[j][k]].act_func_derivative(forwardpass_pa[0][layermap[j][k]],ReLU_leak);
+            float dldz = neuron_gradient[0][layermap[j][k]] * forwardpass_d[0][layermap[j][k]];
             bias_gradient[layermap[j][k]] += dldz;
             for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
@@ -571,7 +571,6 @@ void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,
     }
 }
 
-
 void NN::update_momentum(float momentum){
     for (int i = 0; i < momentumB.size(); i++)
     {
@@ -586,7 +585,6 @@ void NN::update_momentum(float momentum){
         
     }
 }
-
 
 void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron){
     if (freeze_neuron.size() == 0)
@@ -608,6 +606,7 @@ void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron)
         {
             continue;
         }
+        #pragma omp simd
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
             neural_net[i].weights[j].value -= learning_rate * momentumW[i][j];
@@ -683,7 +682,6 @@ void NN::weight_noise(float sigma, std::vector<bool> freeze_neuron){
     }
     
 }
-
 
 //the new weights will be initialised to 0, also resets momentum to 0
 void NN::new_weights(int m_new_weights, std::vector<bool> freeze_neuron){
@@ -868,13 +866,12 @@ NN::NN(std::string file_name)
     std::string str_data;
     std::vector<int> output_in;
     std::vector<int> input_in;
-    if (std::filesystem::exists(file_name)){;}
-    else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
     std::ifstream file(file_name);
+    if (file.good()){;}else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
     file >> str_data;
     file >> str_data;
     neural_net.resize(std::stoi(str_data),neuron(0,0,{},"ReLU6"));
-    pre_activations.resize(std::stoi(str_data),0);
+    act_func_derivatives.resize(std::stoi(str_data),0);
     file >> str_data;
     while (true)
     {
@@ -992,7 +989,6 @@ NN::NN(std::string file_name)
 void NN::sleep(){
 
 }
-
 
 bool NN::input_connection_check(bool outputc, bool memoryc, bool rc){
     neural_net_clear();
@@ -1115,7 +1111,7 @@ NNclone::NNclone(){}
 
 NNclone::NNclone(const NN &cloned)
 :neuron_states(cloned.neural_net.size(),0)
-,pre_activations(cloned.neural_net.size(),0)
+,act_func_derivatives(cloned.neural_net.size(),0)
 ,weights_g(cloned.neural_net.size())
 ,bias_g(cloned.neural_net.size(),0)
 ,neuron_gradient(0)
@@ -1141,8 +1137,8 @@ void NNclone::gradient_clear(){
     }
 }
 
-void NNclone::pre_activations_clear(){
-    std::fill(pre_activations.begin(),pre_activations.end(),0);
+void NNclone::act_func_derivatives_clear(){
+    std::fill(act_func_derivatives.begin(),act_func_derivatives.end(),0);
 }
 
 float activation_function(float output,int activation_function_v,float a){
@@ -1163,18 +1159,20 @@ float activation_function(float output,int activation_function_v,float a){
     }   
 }
 
-void NNclone::forward_pass(const NN &cloned, std::vector<float> &inputs, float a){
+void NNclone::forward_pass(const NN &cloned, std::vector<float> &inputs, float a, bool layer_norm){
     for (int i = 0; i < cloned.input_index.size(); i++)
     {
         neuron_states[cloned.input_index[i]] = inputs[i];
     }
     for (int i = 0; i < cloned.layermap.size(); i++)
     {
+        int memory_count = 0;
         for (int j = 0; j < cloned.layermap[i].size(); j++)
         {   
             if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
             {
                 neuron_states[cloned.layermap[i][j]] = neuron_states[cloned.layermap[i][j]];
+                memory_count++;
             }
             else{
                 neuron_states[cloned.layermap[i][j]]= 0;
@@ -1187,33 +1185,39 @@ void NNclone::forward_pass(const NN &cloned, std::vector<float> &inputs, float a
             neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].bias;
             neuron_states[cloned.layermap[i][j]] = activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a);
         }
-    } 
-}
-
-void NNclone::forward_pass_s_pa(const NN &cloned, std::vector<float> &inputs, float a){
-    for (int i = 0; i < cloned.input_index.size(); i++)
-    {
-        neuron_states[cloned.input_index[i]] = inputs[i];
-    }
-    for (int i = 0; i < cloned.layermap.size(); i++)
-    {
-        for (int j = 0; j < cloned.layermap[i].size(); j++)
-        {   
-            if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+        if (layer_norm)
+        {
+            float mean;
+            float sd;
+            float denom = 1.0/(cloned.layermap[i].size() - memory_count);
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
             {
-                neuron_states[cloned.layermap[i][j]] = neuron_states[cloned.layermap[i][j]];
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                mean += neuron_states[cloned.layermap[i][j]];
             }
-            else{
-                neuron_states[cloned.layermap[i][j]]= 0;
-            } 
-            for (int l = 0; l < cloned.neural_net[cloned.layermap[i][j]].weights.size(); l++)
+            mean = mean * denom;
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
             {
-                //apologies for the naming scheme
-                neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].weights[l].value * neuron_states[cloned.neural_net[cloned.layermap[i][j]].weights[l].index];
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                sd += (neuron_states[cloned.layermap[i][j]] - mean) * (neuron_states[cloned.layermap[i][j]] - mean);
             }
-            neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].bias;
-            pre_activations[cloned.layermap[i][j]] = neuron_states[cloned.layermap[i][j]];
-            neuron_states[cloned.layermap[i][j]] = activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a);
+            sd = std::sqrt(sd * denom);
+            sd = (std::abs(sd) > 0.00001) ? sd:((std::signbit(sd) * -0.00002) + 0.00001);      //to give this this a value that isn't too small
+            sd = 1.0 / sd;  //just doing the division pre-emptively
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
+            {
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                neuron_states[cloned.layermap[i][j]] = (neuron_states[cloned.layermap[i][j]] - mean) * sd;
+            }
         }
     } 
 }
@@ -1235,7 +1239,89 @@ float act_func_derivative(float x,int activation_function_v,float a){
         }
 }
 
-void NNclone::bptt(const NN &cloned,int timestep, std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_pa, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
+void NNclone::forward_pass_s_pa(const NN &cloned, std::vector<float> &inputs, float a, bool layer_norm){
+    for (int i = 0; i < cloned.input_index.size(); i++)
+    {
+        neuron_states[cloned.input_index[i]] = inputs[i];
+    }
+    std::vector<float> pre_norm_mmean;
+    for (int i = 0; i < cloned.layermap.size(); i++)
+    {
+        float memory_count = 0;
+        pre_norm_mmean.resize(cloned.layermap[i].size());
+        for (int j = 0; j < cloned.layermap[i].size(); j++)
+        {   
+            if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+            {
+                neuron_states[cloned.layermap[i][j]] = neuron_states[cloned.layermap[i][j]];
+                memory_count++;
+            }
+            else{
+                neuron_states[cloned.layermap[i][j]]= 0;
+            } 
+            for (int l = 0; l < cloned.neural_net[cloned.layermap[i][j]].weights.size(); l++)
+            {
+                //apologies for the naming scheme
+                neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].weights[l].value * neuron_states[cloned.neural_net[cloned.layermap[i][j]].weights[l].index];
+            }
+            neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].bias;
+            act_func_derivatives[cloned.layermap[i][j]] = act_func_derivative(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a);
+            neuron_states[cloned.layermap[i][j]] = activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a);
+            pre_norm_mmean[j] = neuron_states[cloned.layermap[i][j]];
+        }
+        if (layer_norm)
+        {
+            float mean;
+            float sd;
+            float denom = 1.0/(cloned.layermap[i].size() - memory_count);
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
+            {
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                mean += neuron_states[cloned.layermap[i][j]];
+            }
+            mean = mean * denom;
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
+            {
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                sd += (neuron_states[cloned.layermap[i][j]] - mean) * (neuron_states[cloned.layermap[i][j]] - mean);
+            }
+            sd = std::sqrt(sd * denom);
+            float nsd0_recip =( 1.0/(sd) ) * denom;
+            sd = (std::abs(sd) > 0.00001) ? sd:((std::signbit(sd) * -0.00002) + 0.00001);      //to give this this a value that isn't too small
+            float sd_recip = 1.0 / sd;  //just doing the division pre-emptively
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
+            {
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                neuron_states[cloned.layermap[i][j]] = (neuron_states[cloned.layermap[i][j]] - mean) * sd_recip;
+            }
+            for (int j = 0; j < cloned.layermap[i].size(); j++)
+            {
+                float dzdx = 0;
+                if (cloned.neural_net[cloned.layermap[i][j]].memory || cloned.neural_net[cloned.layermap[i][j]].input_neuron)
+                {
+                    continue;
+                }
+                pre_norm_mmean[j] = pre_norm_mmean[j] - mean;
+                for (int k = 0; k < cloned.layermap[i].size(); j++)
+                {
+                    dzdx += (sd_recip * ((j == k) ? 1-denom:-denom) ) - (pre_norm_mmean[j] * sd_recip * sd_recip * nsd0_recip * (neuron_states[cloned.layermap[i][j]] - mean));
+                }
+                act_func_derivatives[cloned.layermap[i][j]] = act_func_derivatives[cloned.layermap[i][j]] * dzdx;
+            }
+        }
+    } 
+}
+
+void NNclone::bptt(const NN &cloned,int timestep, std::vector<std::vector<float>> &forwardpass_states,std::vector<std::vector<float>> &forwardpass_d, std::vector<std::vector<float>> &target_output_loss, float ReLU_leak, float gradient_limit)
 {
     weights_gradient.resize(cloned.neural_net.size());
     for (int i = 0; i < weights_gradient.size(); i++)
@@ -1263,7 +1349,7 @@ void NNclone::bptt(const NN &cloned,int timestep, std::vector<std::vector<float>
             for (int k = 0; k < cloned.layermap[j].size(); k++)
             {
                 float dldz = neuron_gradient[i][cloned.layermap[j][k]] 
-                * act_func_derivative(forwardpass_pa[i][cloned.layermap[j][k]],cloned.neural_net[cloned.layermap[j][k]].activation_function_v,ReLU_leak);
+                * forwardpass_d[i][cloned.layermap[j][k]];
                 bias_gradient[cloned.layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
                 neuron_gradient[i-1][cloned.layermap[j][k]] = (cloned.neural_net[cloned.layermap[j][k]].memory) ? neuron_gradient[i-1][cloned.layermap[j][k]] + dldz:neuron_gradient[i-1][cloned.layermap[j][k]];
@@ -1288,7 +1374,7 @@ void NNclone::bptt(const NN &cloned,int timestep, std::vector<std::vector<float>
     {
         for (int k = 0; k < cloned.layermap[j].size(); k++)
         {
-            float dldz = neuron_gradient[0][cloned.layermap[j][k]] * act_func_derivative(forwardpass_pa[0][cloned.layermap[j][k]],cloned.neural_net[cloned.layermap[j][k]].activation_function_v,ReLU_leak);
+            float dldz = neuron_gradient[0][cloned.layermap[j][k]] * forwardpass_d[0][cloned.layermap[j][k]];
             bias_gradient[cloned.layermap[j][k]] += dldz;
             for (int l = 0; l < cloned.neural_net[cloned.layermap[j][k]].weights.size(); l++)
                 {
@@ -1360,7 +1446,7 @@ void NNclone::bptt(const NN &cloned,int timestep, std::vector<std::vector<float>
 void NNclone::sync(const NN &cloned)
 {
     neuron_states.resize(cloned.neural_net.size());
-    pre_activations.resize(cloned.neural_net.size());
+    act_func_derivatives.resize(cloned.neural_net.size());
     weights_g.resize(cloned.neural_net.size());
     bias_g.resize(cloned.neural_net.size());
     neuron_gradient.resize(cloned.neural_net.size());
