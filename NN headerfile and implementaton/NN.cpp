@@ -116,7 +116,8 @@ void NN::layermap_sync()
                 bool independent = true;
                 for (int j = initial_neuron; j < neural_net.size(); j++)
                 {
-                    if (dependency[i][j] && index_label[j])
+                    bool tf = dependency[i][j];
+                    if (tf && index_label[j])
                     {
                         independent = false;
                         break;
