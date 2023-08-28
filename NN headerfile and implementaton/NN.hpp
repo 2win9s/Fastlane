@@ -73,6 +73,7 @@ struct NN
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
     //only for forward
 
+    //is a memory hog, quadratic in number of neurons
     void layermap_sync();    //this is to create/ update the layermap, this will be called an run after initialisation, regularisation and adding more weights
     
     //dunno if it works for this, no idea how to derive one

@@ -83,13 +83,16 @@ void NN::layermap_sync()
         index_label[i] = true;
     }
     /**/
-    #pragma omp parallel for
     for (int i = 0; i < dependency.size(); i++)
     {
         dependency[i].resize(neural_net.size(),false);
         std::fill(dependency[i].begin(),dependency[i].end(),false);
         for (int j = 0; j < neural_net[i].weights.size(); j++)
         {
+            if (neural_net[i].weights[j].index > i)
+            {
+                continue;
+            }
             dependency[i][neural_net[i].weights[j].index] = true;  //set union may be faster test for use case
         }
     }
@@ -97,10 +100,8 @@ void NN::layermap_sync()
     std::vector<int> layermap_layer_candidate;
     int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
     int mapped_n = 0;
-    std::cout<<"begin_loop"<<std::endl;
     while(true)                                 
     {
-        std::cout<<mapped_n<<std::endl;
         if (neural_net.size() == 0)
         {
             std::cout<<"ERROR, neural net with 0 neurons"<<std::endl;
@@ -116,7 +117,7 @@ void NN::layermap_sync()
                 bool independent = true;
                 for (int j = initial_neuron; j < neural_net.size(); j++)
                 {
-                    bool tf = dependency[i][j];
+                    bool tf = dependency[i][j];                    
                     if (tf && index_label[j])
                     {
                         independent = false;
@@ -129,6 +130,24 @@ void NN::layermap_sync()
                 }   
             }
         }
+        if (layermap_layer_candidate.size() == 0)
+        {
+            for (int i = 0; i < neural_net.size(); i++)
+            {
+                if (index_label[i])
+                {
+                    for (int j = 0; j < neural_net[i].weights.size(); j++)
+                    {
+                        std::cout<<neural_net[i].weights[j].index<<"\n";
+                    }
+                    std::cout<<std::endl;
+                    std::cout<<"something went wrong in layermap function, check weights of neuron "<<i<<std::endl;
+                    std::exit(EXIT_FAILURE);
+                }
+            }
+            
+        }
+        
         mapped_n += layermap_layer_candidate.size();
         for (int i = 0; i < layermap_layer_candidate.size(); i++)
         {
@@ -163,6 +182,11 @@ float quadractic_dist(){
     float x = zero_to_one(twister);
     x = 0.5 * (std::cbrt(2 * x - 1) + 1);  
     return x;   //x will be distributed according to quadractic pdf 12(t - 0.5)^2 between (0,1)     
+}
+
+float uniform_dist(){
+    float x = zero_to_one(twister);
+    return x;
 }
 
 //constructor for neural net struct
@@ -209,34 +233,36 @@ NN::NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons
         for (int j = 0; j < connect_n; j++)
         {
             int remaining = size - 2 - neural_net[i].weights.size();
-            int input_neuron_index = std::floor((remaining) * (quadractic_dist() - 0.5));
+            int input_neuron_index = std::floor((remaining) * (uniform_dist() - 0.5));
             int wrap_around  = (input_neuron_index < 0) * (remaining + input_neuron_index);
             wrap_around = (wrap_around > input_neuron_index) ? wrap_around:input_neuron_index;
             input_neuron_index = (wrap_around % (remaining));
             int pos = 0;
-            for (int k = 0; k < neural_net[i].weights.size(); k++)
+            bool gapped = true;
+            for(int k = 0; k < neural_net[i].weights.size(); k++)
             {
-                if ((neural_net[i].weights[k].index > i) || (input_neuron_index > i))
+                if ((input_neuron_index >= i) && gapped)
                 {
-                    if (input_neuron_index >= neural_net[i].weights[k].index)
-                    {
-                        input_neuron_index++;
-                        pos++;
-                    }
-                    else{break;}
+                    gapped = false;
+                    input_neuron_index++;
                 }
-                else if (input_neuron_index >= i)
+                if (input_neuron_index >= neural_net[i].weights[k].index)
                 {
                     input_neuron_index++;
                     pos++;
+                    continue;
                 }
-                else{
-                    if (input_neuron_index >= neural_net[i].weights[k].index)
-                    {
-                        input_neuron_index++;
-                        pos++;
-                    }    
+                if ((input_neuron_index >= i) && gapped)
+                {
+                    gapped = false;
+                    input_neuron_index++;
+                    continue;
                 }
+                break;
+            }
+            if ((input_neuron_index >= i) && gapped)
+            {
+                input_neuron_index++;
             }
             neural_net[i].weights.insert(neural_net[i].weights.begin() + pos,index_value_pair(input_neuron_index,0));
             momentumW[i].emplace_back(0);    
@@ -732,7 +758,6 @@ void NN::new_weights_s(int m_new_weights, std::vector<bool> freeze_neuron){
         freeze_neuron.reserve(neural_net.size());
         freeze_neuron.resize(neural_net.size(),false);
     }
-    std::cout<<"new_weights"<<std::endl;
     std::uniform_int_distribution<int> dist_to(0, neural_net.size() -1); 
     //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
     int* new_weights = new int[neural_net.size()];
@@ -793,29 +818,31 @@ void NN::new_weights_s(int m_new_weights, std::vector<bool> freeze_neuron){
         {
             int index_from = std::floor(zero_to_one(twister) * (neural_net.size() -2 - neural_net[i].weights.size()));
             int pos = 0;
-            for (int k = 0; k < neural_net[i].weights.size(); k++)
+            bool gapped = true;
+            for(int k = 0; k < neural_net[i].weights.size(); k++)
             {
-                if ((neural_net[i].weights[k].index > i) || (index_from > i))
+                if ((index_from >= i) && gapped)
                 {
-                    if (index_from >= neural_net[i].weights[k].index)
-                    {
-                        index_from++;
-                        pos++;
-                    }
-                    else{break;}
+                    gapped = false;
+                    index_from++;
                 }
-                else if (index_from >= i)
+                if (index_from >= neural_net[i].weights[k].index)
                 {
                     index_from++;
                     pos++;
+                    continue;
                 }
-                else{
-                    if (index_from >= neural_net[i].weights[k].index)
-                    {
-                        index_from++;
-                        pos++;
-                    }    
+                if ((index_from >= i) && gapped)
+                {
+                    gapped = false;
+                    index_from++;
+                    continue;
                 }
+                break;
+            }
+            if ((index_from >= i) && gapped)
+            {
+                index_from++;
             }
             neural_net[i].weights.insert(neural_net[i].weights.begin() + pos,index_value_pair(index_from,0));
             momentumW[i].emplace_back(0);
