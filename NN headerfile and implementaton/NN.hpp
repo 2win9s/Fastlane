@@ -14,6 +14,10 @@ float dGELU(float x);
 /*Cognitron: A self-organizing multilayered neural network (Kunihiko Fukushima ) : https://link.springer.com/article/10.1007/BF00342633*/
 float dReLU(float x, float a);
 
+//based on "A handy approximation for the error function and its inverse" by Sergei Winitzki.,
+//https://www.academia.edu/9730974/A_handy_approximation_for_the_error_function_and_its_inverse
+float approx_erfinv(float x);
+
 //the neural net struct
 struct NN
 {
@@ -39,12 +43,11 @@ struct NN
         /*
         using a modified form of ReZero(Bachlechner et Al.) : https://arxiv.org/pdf/2003.04887.pdf
         the activation function f(x) is "initialised" as an identity function
-        f(x) = (1 - α) * x + α * g(x), where g(x) is a non linear function and α is initialised to 0
-        it is very similiar to the original but instead the identity part of the function can be "unlearned" and we keep 0 < α < 1, this might be a bad idea, we will see
-        (though for ReLU and its relatives it should be fine?)
+        f(x) =  β * x + α * g(x), where g(x) is a non linear function and α is initialised to 0
+        it is very similiar to the original but instead the identity part of the function can be "unlearned" and we keep 0 < β < 1 and 0 < α < 1, this might be a bad idea, we will see
         */  
         float alpha;
-
+        float beta;
         bool isnt_input(int neuron_index);                   
     };
 
@@ -53,6 +56,8 @@ struct NN
     
 
     std::vector<float> pre_activations;
+    std::vector<float> f_x;
+    std::vector<float> t_minus1;
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<int> memory_index;          //indexing recording the neurons that add on their previous state
@@ -60,15 +65,18 @@ struct NN
     std::vector<std::vector<float>> momentumW;
     std::vector<float> momentumB;  
     std::vector<float> momentumA;
+    std::vector<float> momentumBeta;
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
     std::vector<float> alpha_g;
+    std::vector<float> beta_g;
     std::vector<std::vector<float>> neuron_gradient;
     std::vector<std::vector<bool>> dependency;
     
     std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
     std::vector<float>  bias_gradient;                  //reducing memory allocations and deallocations
     std::vector<float> alpha_gradient;
+    std::vector<float> beta_gradient;
     
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
     //only for forward
@@ -112,7 +120,7 @@ struct NN
     void forward_pass_s_pa(std::vector<float> &inputs, float a = 0);    //save the pre activation
 
     //back propgation through time, no weight updates, only gradient
-    void bptt(int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_d, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
+    void bptt(int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa,std::vector<std::vector<float>> &forwardpass_fx, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
     
     //passes the gradients through a softsign function before updating momentum and weights, stochastic gradient descent, weights updated each iteration
     void bptt_softsign_gradient(std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &target_output_loss,float learning_rate, float momentum_param = 0.9 , float ReLU_leak = 0, float gradient_limit = 5, std::vector<bool> freeze_neuron = {});
@@ -120,6 +128,7 @@ struct NN
     void update_parameters(float learning_rate, std::vector<bool> freeze_neuron = {});
     void l1_reg(float h_param, std::vector<bool> freeze_neuron = {});
     void l2_reg(float w_decay, std::vector<bool> freeze_neuron = {});
+    void beta_l1_reg(float h_param, std::vector<bool> freeze_neuron = {});
     void weight_noise(float sigma, std::vector<bool> freeze_neuron ={});
 
     //assumes the index of weights are already sorted in ascending order
@@ -143,14 +152,18 @@ struct NNclone
 {
     std::vector<float> neuron_states;
     std::vector<float> pre_activations;
+    std::vector<float> f_x;
+    std::vector<float> t_minus1;
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
-    std::vector<float>  alpha_g;
+    std::vector<float> alpha_g;
+    std::vector<float> beta_g;
     std::vector<std::vector<float>> neuron_gradient;
     
     std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
-    std::vector<float>  bias_gradient;                  //reducing memory allocations and deallocations
-    std::vector<float>  alpha_gradient;
+    std::vector<float> bias_gradient;                  //reducing memory allocations and deallocations
+    std::vector<float> alpha_gradient;
+    std::vector<float> beta_gradient;
 
     NNclone();
     NNclone(const NN &cloned);
@@ -162,7 +175,7 @@ struct NNclone
 
     void forward_pass(const NN &cloned,std::vector<float> &inputs, float a = 0);
     void forward_pass_s_pa(const NN &cloned,std::vector<float> &inputs, float a = 0);    //save the pre activation
-    void bptt(const NN &cloned,int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_d, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
+    void bptt(const NN &cloned,int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa,std::vector<std::vector<float>> &forwardpass_fx, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
 
     void sync(const NN &cloned);
 };
