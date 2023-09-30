@@ -43,11 +43,10 @@ struct NN
         /*
         using a modified form of ReZero(Bachlechner et Al.) : https://arxiv.org/pdf/2003.04887.pdf
         the activation function f(x) is "initialised" as an identity function
-        f(x) =  β * x + α * g(x), where g(x) is a non linear function and α is initialised to 0
-        it is very similiar to the original but instead the identity part of the function can be "unlearned" and we keep 0 < β < 1 and 0 < α < 1, this might be a bad idea, we will see
+        f(x) =  (1 - α) * x + α * g(x), where g(x) is a non linear function and α is initialised to 0
+        it is very similiar to the original but instead the identity part of the function can be "unlearned" and 0 < α < 1, this might be a bad idea, we will see
         */  
         float alpha;
-        float beta;
         bool isnt_input(int neuron_index);                   
     };
 
@@ -65,18 +64,19 @@ struct NN
     std::vector<std::vector<float>> momentumW;
     std::vector<float> momentumB;  
     std::vector<float> momentumA;
-    std::vector<float> momentumBeta;
+
+
+
+
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
     std::vector<float> alpha_g;
-    std::vector<float> beta_g;
     std::vector<std::vector<float>> neuron_gradient;
     std::vector<std::vector<bool>> dependency;
     
     std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
     std::vector<float>  bias_gradient;                  //reducing memory allocations and deallocations
     std::vector<float> alpha_gradient;
-    std::vector<float> beta_gradient;
     
     std::vector<std::vector<int>> layermap; //separating vector of neurons into layers with no weights connecting the neurons in each layer
     //only for forward
@@ -128,7 +128,6 @@ struct NN
     void update_parameters(float learning_rate, std::vector<bool> freeze_neuron = {});
     void l1_reg(float h_param, std::vector<bool> freeze_neuron = {});
     void l2_reg(float w_decay, std::vector<bool> freeze_neuron = {});
-    void beta_l1_reg(float h_param, std::vector<bool> freeze_neuron = {});
     void weight_noise(float sigma, std::vector<bool> freeze_neuron ={});
 
     //assumes the index of weights are already sorted in ascending order
@@ -146,6 +145,7 @@ struct NN
 
     //c_step_size is the number of connections added before each check, io check input to output, im check input to memeory, mo memory to output, and rc whether to consider recurrent connections or not
     void ensure_connection(int c_step_size ,bool io = true, bool im = true, bool mo = true, bool rc = true);
+    void depth_check();
 };
 
 struct NNclone
@@ -157,13 +157,11 @@ struct NNclone
     std::vector<std::vector<float>> weights_g;
     std::vector<float> bias_g;   
     std::vector<float> alpha_g;
-    std::vector<float> beta_g;
     std::vector<std::vector<float>> neuron_gradient;
     
     std::vector<std::vector<float>> weights_gradient;   //reducing memory allocations and deallocations
     std::vector<float> bias_gradient;                  //reducing memory allocations and deallocations
     std::vector<float> alpha_gradient;
-    std::vector<float> beta_gradient;
 
     NNclone();
     NNclone(const NN &cloned);
@@ -175,7 +173,7 @@ struct NNclone
 
     void forward_pass(const NN &cloned,std::vector<float> &inputs, float a = 0);
     void forward_pass_s_pa(const NN &cloned,std::vector<float> &inputs, float a = 0);    //save the pre activation
-    void bptt(const NN &cloned,int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa,std::vector<std::vector<float>> &forwardpass_fx, std::vector<std::vector<float>> &target_output_loss , float ReLU_leak = 0, float gradient_limit = 10);
+    void bptt(const NN &cloned,const int timestep,std::vector<std::vector<float>> &forwardpass_states, std::vector<std::vector<float>> &forwardpass_pa,std::vector<std::vector<float>> &forwardpass_fx, std::vector<std::vector<float>> &target_output_loss ,const float ReLU_leak = 0,const float gradient_limit = 10);
 
     void sync(const NN &cloned);
 };
