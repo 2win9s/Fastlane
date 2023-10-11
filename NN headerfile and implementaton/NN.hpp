@@ -41,10 +41,10 @@ struct NN
         neuron(float init_val, float init_bias, std::vector<index_value_pair> init_weights,std::string act_func);
 
         /*
-        using a modified form of ReZero(Bachlechner et Al.) : https://arxiv.org/pdf/2003.04887.pdf
+        using ReZero(Bachlechner et Al.) : https://arxiv.org/pdf/2003.04887.pdf instead of layernorm or batchnorm as they are not as compatible with this architecture (changing layers) 
         the activation function f(x) is "initialised" as an identity function
-        f(x) =  (1 - α) * x + α * g(x), where g(x) is a non linear function and α is initialised to 0
-        it is very similiar to the original but instead the identity part of the function can be "unlearned" and 0 < α < 1, this might be a bad idea, we will see
+        f(x) =  x + α * g(x), where g(x) is a non linear function and α is initialised to 0
+        this is like a resnet skip connection but for individual neurons
         */  
         float alpha;
         bool isnt_input(int neuron_index);                   
@@ -130,8 +130,11 @@ struct NN
     void l2_reg(float w_decay, std::vector<bool> freeze_neuron = {});
     void weight_noise(float sigma, std::vector<bool> freeze_neuron ={});
 
-    //assumes the index of weights are already sorted in ascending order
+    //assumes the index of weights are already sorted in ascending order, if not slow sorting algorithm
     void new_weights_s(int n_new_weights, std::vector<bool> freeze_neuron ={});
+    void new_rweights_s(int m_new_weights, std::vector<bool> freeze_neuron = {});
+    void new_imweights_s(int m_new_weights, std::vector<bool> freeze_neuron = {});
+    void new_omweights_s(int m_new_weights, std::vector<bool> freeze_neuron = {});
 
     void prune_weights(float weights_cutoff, std::vector<bool> freeze_neuron = {});
 

@@ -113,10 +113,11 @@ void NN::layermap_sync()
             {
                 if (index_label[i])
                 {
+                    /*
                     for (int j = 0; j < neural_net[i].weights.size(); j++)
                     {
                         std::cout<<neural_net[i].weights[j].index<<"\n";
-                    }
+                    }*/
                     std::cout<<std::endl;
                     std::cout<<"something went wrong in layermap function, check weights of neuron "<<i<<std::endl;
                     std::exit(EXIT_FAILURE);
@@ -458,7 +459,7 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
             }
             neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].bias;
             const float al = neural_net[layermap[i][j]].alpha;
-            neural_net[layermap[i][j]].output = ((1-al) * neural_net[layermap[i][j]].output) + (al * activation_function(neural_net[layermap[i][j]].output,neural_net[layermap[i][j]].activation_function_v,a));
+            neural_net[layermap[i][j]].output = (neural_net[layermap[i][j]].output) + (al * activation_function(neural_net[layermap[i][j]].output,neural_net[layermap[i][j]].activation_function_v,a));
         }
     } 
     #pragma omp simd
@@ -496,7 +497,7 @@ void NN::forward_pass_s_pa(std::vector<float> &inputs, float a){
             const float al = neural_net[layermap[i][j]].alpha;
             neural_net[layermap[i][j]].output =  (activation_function(neural_net[layermap[i][j]].output,neural_net[layermap[i][j]].activation_function_v,a));
             f_x[layermap[i][j]] = neural_net[layermap[i][j]].output;
-            neural_net[layermap[i][j]].output = ((1 - al) * pre_activations[layermap[i][j]]) + al * f_x[layermap[i][j]];
+            neural_net[layermap[i][j]].output = (pre_activations[layermap[i][j]]) + al * f_x[layermap[i][j]];
         }
     } 
     #pragma omp simd
@@ -544,9 +545,9 @@ void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,
                 float dldz = neuron_gradient[i][layermap[j][k]] * 
                 ((act_func_derivative(forwardpass_pa[i][layermap[j][k]],neural_net[layermap[j][k]].activation_function_v,ReLU_leak)
                 *(a))
-                + 1 - a);
+                + 1);
                 //dldz = (std::abs(dldz) > gradient_limit) ? (sign_of(dldz) * gradient_limit):dldz;
-                alpha_gradient[layermap[j][k]] += (forwardpass_fx[i][layermap[j][k]] - forwardpass_pa[i][layermap[j][k]]) * neuron_gradient[i][layermap[j][k]];
+                alpha_gradient[layermap[j][k]] += (forwardpass_fx[i][layermap[j][k]]) * neuron_gradient[i][layermap[j][k]];
                 bias_gradient[layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
                 neuron_gradient[i-1][layermap[j][k]] = (neural_net[layermap[j][k]].memory) ? neuron_gradient[i-1][layermap[j][k]] + dldz:neuron_gradient[i-1][layermap[j][k]];
@@ -575,9 +576,9 @@ void NN::bptt(int timestep, std::vector<std::vector<float>> &forwardpass_states,
             float dldz = neuron_gradient[0][layermap[j][k]] * 
             ((act_func_derivative(forwardpass_pa[0][layermap[j][k]],neural_net[layermap[j][k]].activation_function_v,ReLU_leak)
             *(a))
-            +1 -a);
+            + 1);
             //dldz = (std::abs(dldz) > gradient_limit) ? (sign_of(dldz) * gradient_limit):dldz;
-            alpha_gradient[layermap[j][k]] += (forwardpass_fx[0][layermap[j][k]] - forwardpass_pa[0][layermap[j][k]]) * neuron_gradient[0][layermap[j][k]];
+            alpha_gradient[layermap[j][k]] += (forwardpass_fx[0][layermap[j][k]]) * neuron_gradient[0][layermap[j][k]];
             bias_gradient[layermap[j][k]] += dldz;
             for (int l = 0; l < neural_net[layermap[j][k]].weights.size(); l++)
                 {
@@ -817,7 +818,7 @@ void NN::new_weights_s(int m_new_weights, std::vector<bool> freeze_neuron){
         momentumW[i].reserve(neural_net[i].weights.size() + new_weights[i]);
         for (int j = 0; j < new_weights[i]; j++)
         {
-            int index_from = std::floor(zero_to_one(twister) * (neural_net.size() -2 - neural_net[i].weights.size()));
+            int index_from = std::floor(zero_to_one(twister) * (neural_net.size() -2 - neural_net[i].weights.size()));      //indexing starts at 0
             int pos = 0;
             bool gapped = true;
             for(int k = 0; k < neural_net[i].weights.size(); k++)
@@ -855,6 +856,352 @@ void NN::new_weights_s(int m_new_weights, std::vector<bool> freeze_neuron){
     momentum_clear();
     layermap_sync();
 }
+
+//initialise m_new_weights number of new recurrent weights to 0
+void NN::new_rweights_s(int m_new_weights, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
+    std::uniform_int_distribution<int> dist_to(0, neural_net.size() - 1); 
+    //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
+    int* new_weights = new int[neural_net.size()];
+    int* new_weights_limit = new int[neural_net.size()];
+    int* rsize = new int[neural_net.size()];
+    long long total_available_weights = 0;
+
+    bool swappos = true;
+    while (swappos)
+    {
+        swappos = false;
+        #pragma omp parallel for
+        for (int i = 0; i < neural_net.size(); i++)
+        {
+            for (int j = 1; j < neural_net[i].weights.size(); j++)
+            {
+                if (neural_net[i].weights[j-1].index > neural_net[i].weights[j].index)
+                {
+                    std::swap(neural_net[i].weights[j-1],neural_net[i].weights[j]);
+                    swappos = true;
+                }
+            }
+            
+        }   
+    }
+
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        new_weights[i] = 0;
+        rsize[i] = 0;
+        for(int j = 0; j < neural_net[i].weights.size(); j++)
+        {
+            if (neural_net[i].weights[j].index>i)
+            {
+               rsize[i] = neural_net[i].weights.size() - j;
+               break;
+            }
+        }
+    }
+
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        new_weights_limit[i] = neural_net.size() - 1 - rsize[i] - i;
+        if (neural_net[i].input_neuron || freeze_neuron[i])
+        {
+            continue;
+        }
+        
+        total_available_weights += new_weights_limit[i];
+    }
+    if (m_new_weights > total_available_weights)
+    {
+        m_new_weights = total_available_weights;
+    }
+    for (int i = 0; i < m_new_weights; i++)
+    {
+        int index_to = dist_to(twister);
+        if (neural_net[index_to].input_neuron || freeze_neuron[index_to] || (new_weights[index_to] == new_weights_limit[index_to]))
+        {
+            i--;   
+        }
+        else{
+            new_weights[index_to]++;
+        }
+    }
+    
+    #pragma omp parallel for
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        neural_net[i].weights.reserve(neural_net[i].weights.size() + new_weights[i]);
+        momentumW[i].reserve(neural_net[i].weights.size() + new_weights[i]);
+        for (int j = 0; j < new_weights[i]; j++)
+        {
+            int og;
+            int index_from = i + std::floor(zero_to_one(twister) * (neural_net.size() - 2 - rsize[i] - i));
+            og = index_from;
+            int pos = neural_net[i].weights.size() - rsize[i];
+            if (index_from == i)
+            {
+                index_from++;
+            }
+            for(int k = (neural_net[i].weights.size() - rsize[i]); k < neural_net[i].weights.size(); k++)
+            {
+                if (index_from >= neural_net[i].weights[k].index)
+                {
+                    index_from++;
+                    pos++;
+                    continue;
+                }
+                break;
+            }
+            neural_net[i].weights.insert(neural_net[i].weights.begin() + pos,index_value_pair(index_from,0));
+            momentumW[i].emplace_back(0);
+            weights_g[i].emplace_back(0);
+            rsize[i]++;
+        }
+    }
+    delete[] new_weights;
+    delete[] new_weights_limit;
+    delete[] rsize;
+    momentum_clear();
+    layermap_sync();
+}
+
+//initialise m_new_weights number of new weights to the "memory" neurons
+void NN::new_imweights_s(int m_new_weights, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
+    std::uniform_int_distribution<int> dist_to(0, memory_index.size() - 1); 
+    //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
+    int* new_weights = new int[memory_index.size()];
+    int* new_weights_limit = new int[memory_index.size()];
+    long long total_available_weights = 0;
+    for (int i = 0; i < memory_index.size(); i++)
+    {
+        new_weights[i] = 0;
+    }
+    for (int i = 0; i < memory_index.size(); i++)
+    {
+        new_weights_limit[i] = neural_net.size() - 1 - neural_net[memory_index[i]].weights.size();
+        if (neural_net[memory_index[i]].input_neuron || freeze_neuron[memory_index[i]])
+        {
+            continue;
+        }
+        
+        total_available_weights += new_weights_limit[i];
+    }
+    if (m_new_weights > total_available_weights)
+    {
+        m_new_weights = total_available_weights;
+    }
+    for (int i = 0; i < m_new_weights; i++)
+    {
+        int index_to = dist_to(twister);
+        if (neural_net[memory_index[index_to]].input_neuron || freeze_neuron[memory_index[index_to]] || (new_weights[index_to] == new_weights_limit[index_to]))
+        {
+            i--;   
+        }
+        else{
+            new_weights[index_to]++;
+        }
+    }
+    #pragma omp parallel for
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        for (int j = 1; j < neural_net[i].weights.size(); j++)
+        {
+            if (neural_net[i].weights[j-1].index > neural_net[i].weights[j].index)
+            {
+                std::swap(neural_net[i].weights[j-1],neural_net[i].weights[j]);
+            }
+        }
+        
+    }
+    
+    #pragma omp parallel for
+    for (int i = 0; i < memory_index.size(); i++)
+    {
+        if (freeze_neuron[memory_index[i]])
+        {
+            continue;
+        }
+        neural_net[memory_index[i]].weights.reserve(neural_net[memory_index[i]].weights.size() + new_weights[i]);
+        momentumW[memory_index[i]].reserve(neural_net[memory_index[i]].weights.size() + new_weights[i]);
+        for (int j = 0; j < new_weights[i]; j++)
+        {
+            int index_from = std::floor(zero_to_one(twister) * (neural_net.size() -2 - neural_net[memory_index[i]].weights.size()));      //indexing starts at 0
+            int pos = 0;
+            bool gapped = true;
+            for(int k = 0; k < neural_net[memory_index[i]].weights.size(); k++)
+            {
+                if ((index_from >= memory_index[i]) && gapped)
+                {
+                    gapped = false;
+                    index_from++;
+                }
+                if (index_from >= neural_net[memory_index[i]].weights[k].index)
+                {
+                    index_from++;
+                    pos++;
+                    continue;
+                }
+                if ((index_from >= memory_index[i]) && gapped)
+                {
+                    gapped = false;
+                    index_from++;
+                    continue;
+                }
+                break;
+            }
+            if ((index_from >= memory_index[i]) && gapped)
+            {
+                index_from++;
+            }
+            
+            neural_net[memory_index[i]].weights.insert(neural_net[memory_index[i]].weights.begin() + pos,index_value_pair(index_from,0));
+            momentumW[memory_index[i]].emplace_back(0);
+            weights_g[memory_index[i]].emplace_back(0);
+        }
+    }
+    delete[] new_weights;
+    delete[] new_weights_limit;
+    momentum_clear();
+    layermap_sync();
+}
+
+//initialise m_new_weights number of new from the "memory" neurons
+void NN::new_omweights_s(int m_new_weights, std::vector<bool> freeze_neuron){
+    if (freeze_neuron.size() == 0)
+    {
+        freeze_neuron.reserve(neural_net.size());
+        freeze_neuron.resize(neural_net.size(),false);
+    }
+    std::uniform_int_distribution<int> dist_to(0, neural_net.size() -1); 
+    //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
+    int* new_weights = new int[neural_net.size()];
+    int* new_weights_limit = new int[neural_net.size()];
+    int* msize = new int[neural_net.size()];
+    long long total_available_weights = 0;
+        //sort the weights
+    bool swappos = true;
+    while (swappos)
+    {
+        swappos = false;
+        #pragma omp parallel for
+        for (int i = 0; i < neural_net.size(); i++)
+        {
+            for (int j = 1; j < neural_net[i].weights.size(); j++)
+            {
+                if (neural_net[i].weights[j-1].index > neural_net[i].weights[j].index)
+                {
+                    std::swap(neural_net[i].weights[j-1],neural_net[i].weights[j]);
+                    swappos = true;
+                }
+            }
+            
+        }   
+    }
+
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        new_weights[i] = 0;
+        msize[i] = 0;
+        for(int j = 0; j < neural_net[i].weights.size(); j++)
+        {
+            if (neural_net[neural_net[i].weights[j].index].memory)
+            {
+               msize[i]++;
+            }
+        }
+    }
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        msize[i] = (neural_net[i].memory) ? (msize[i] + 1):msize[i] ;
+        new_weights_limit[i] = memory_index.size() - msize[i];
+        if (neural_net[i].input_neuron || freeze_neuron[i])
+        {
+            continue;
+        }
+        
+        total_available_weights += new_weights_limit[i];
+    }
+    if (m_new_weights > total_available_weights)
+    {
+        m_new_weights = total_available_weights;
+    }
+    //can be a very inefficient loop as neural netowrk approaches full connectivity
+    for (int i = 0; i < m_new_weights; i++)
+    {
+        int index_to = dist_to(twister);
+        if (neural_net[index_to].input_neuron || freeze_neuron[index_to] || (new_weights[index_to] == new_weights_limit[index_to]))
+        {
+            i--;   
+        }
+        else{
+            new_weights[index_to]++;
+        }
+    }
+    //#pragma omp parallel for
+    for (int i = 0; i < neural_net.size(); i++)
+    {
+        if (freeze_neuron[i])
+        {
+            continue;
+        }
+        neural_net[i].weights.reserve(neural_net[i].weights.size() + new_weights[i]);
+        momentumW[i].reserve(neural_net[i].weights.size() + new_weights[i]);
+        for (int j = 0; j < new_weights[i]; j++)
+        {
+            int index_from = std::floor(zero_to_one(twister) * (memory_index.size() - msize[i] - 1));
+            int pos = 0;
+            for(int k = 0; k < neural_net[i].weights.size(); k++)
+            {
+                if (memory_index[index_from] == i)
+                {
+                    index_from++;
+                }
+                if (neural_net[i].weights[k].index == memory_index[index_from])
+                {
+                    index_from++;
+                }
+                if (memory_index[index_from] == i)
+                {
+                    index_from++;
+                }
+            }
+            index_from = memory_index[index_from];
+            for (int k = 0; k < neural_net[i].weights.size(); k++)
+            {
+                if (index_from > neural_net[i].weights[j].index)
+                {
+                    pos++;
+                }
+                
+            }
+            
+            neural_net[i].weights.insert(neural_net[i].weights.begin() + pos,index_value_pair(index_from,0));
+            momentumW[i].emplace_back(0);
+            weights_g[i].emplace_back(0);
+            msize[i]++;
+        }
+    }
+    delete[] new_weights;
+    delete[] new_weights_limit;
+    delete[] msize;
+    momentum_clear();
+    layermap_sync();
+}
+
+
+
 
 //if below weights_cutoff, weights are removed, also reset momentum to 0 
 void NN::prune_weights(float weights_cutoff, std::vector<bool> freeze_neuron){
@@ -1273,6 +1620,12 @@ void NN::depth_check(){
     std::cout<<"on average "<<avg_depth/denominator<<" \"layers\""<<std::endl;
 }
 
+
+
+
+
+
+
 NNclone::NNclone(){}
 
 NNclone::NNclone(const NN &cloned)
@@ -1335,7 +1688,7 @@ void NNclone::forward_pass(const NN &cloned, std::vector<float> &inputs, float a
             }
             neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].bias;
             const float al = cloned.neural_net[cloned.layermap[i][j]].alpha;
-            neuron_states[cloned.layermap[i][j]] = ((1 - al) * neuron_states[cloned.layermap[i][j]]) + (al * activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a));
+            neuron_states[cloned.layermap[i][j]] = (neuron_states[cloned.layermap[i][j]]) + (al * activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a));
         }
     } 
     #pragma omp simd
@@ -1371,7 +1724,7 @@ void NNclone::forward_pass_s_pa(const NN &cloned, std::vector<float> &inputs, fl
             const float al = cloned.neural_net[cloned.layermap[i][j]].alpha;
             neuron_states[cloned.layermap[i][j]] = activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a);
             f_x[cloned.layermap[i][j]] = neuron_states[cloned.layermap[i][j]];
-            neuron_states[cloned.layermap[i][j]] = (f_x[cloned.layermap[i][j]] * al) + ((1 - al) * pre_activations[cloned.layermap[i][j]]);
+            neuron_states[cloned.layermap[i][j]] = (f_x[cloned.layermap[i][j]] * al) + (pre_activations[cloned.layermap[i][j]]);
         }
     }
     #pragma omp simd
@@ -1415,8 +1768,8 @@ void NNclone::bptt(const NN &cloned,const int timestep,std::vector<std::vector<f
                 float dldz = neuron_gradient[i][cloned.layermap[j][k]] * 
                 ((act_func_derivative(forwardpass_pa[i][cloned.layermap[j][k]],cloned.neural_net[cloned.layermap[j][k]].activation_function_v,ReLU_leak)
                 *(a))
-                + 1 - a);
-                alpha_gradient[cloned.layermap[j][k]] += (forwardpass_fx[i][cloned.layermap[j][k]] - forwardpass_pa[i][cloned.layermap[j][k]]) * neuron_gradient[i][cloned.layermap[j][k]];
+                + 1);
+                alpha_gradient[cloned.layermap[j][k]] += (forwardpass_fx[i][cloned.layermap[j][k]]) * neuron_gradient[i][cloned.layermap[j][k]];
                 bias_gradient[cloned.layermap[j][k]] += dldz;
                 //surely this won't lead to exploding gradients, right??
                 neuron_gradient[i-1][cloned.layermap[j][k]] = (cloned.neural_net[cloned.layermap[j][k]].memory) ? (neuron_gradient[i-1][cloned.layermap[j][k]] + dldz):neuron_gradient[i-1][cloned.layermap[j][k]];
@@ -1442,8 +1795,8 @@ void NNclone::bptt(const NN &cloned,const int timestep,std::vector<std::vector<f
             float dldz = neuron_gradient[0][cloned.layermap[j][k]] * 
             ((act_func_derivative(forwardpass_pa[0][cloned.layermap[j][k]],cloned.neural_net[cloned.layermap[j][k]].activation_function_v,ReLU_leak)
             *(a))
-            + 1 - a);
-            alpha_gradient[cloned.layermap[j][k]] += (forwardpass_fx[0][cloned.layermap[j][k]] - forwardpass_pa[0][cloned.layermap[j][k]]) * neuron_gradient[0][cloned.layermap[j][k]];
+            + 1);
+            alpha_gradient[cloned.layermap[j][k]] += (forwardpass_fx[0][cloned.layermap[j][k]]) * neuron_gradient[0][cloned.layermap[j][k]];
             bias_gradient[cloned.layermap[j][k]] += dldz;
             for (int l = 0; l < cloned.neural_net[cloned.layermap[j][k]].weights.size(); l++)
                 {
