@@ -458,8 +458,9 @@ void NN::forward_pass(std::vector<float> &inputs, float a){
                 neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].weights[l].value * in;
             }
             neural_net[layermap[i][j]].output += neural_net[layermap[i][j]].bias;
+            const float pre_activation = neural_net[layermap[i][j]].output;
             const float al = neural_net[layermap[i][j]].alpha;
-            neural_net[layermap[i][j]].output = (neural_net[layermap[i][j]].output) + (al * activation_function(neural_net[layermap[i][j]].output,neural_net[layermap[i][j]].activation_function_v,a));
+            neural_net[layermap[i][j]].output = (pre_activation) + (al * activation_function(neural_net[layermap[i][j]].output,neural_net[layermap[i][j]].activation_function_v,a));
         }
     } 
     #pragma omp simd
@@ -666,8 +667,6 @@ void NN::update_parameters(float learning_rate, std::vector<bool> freeze_neuron)
             continue;
         }
         neural_net[i].alpha -= learning_rate * momentumA[i];
-        neural_net[i].alpha = (neural_net[i].alpha > 1) ? 1:neural_net[i].alpha;
-        neural_net[i].alpha = (neural_net[i].alpha < 0) ? 0:neural_net[i].alpha;
     }
     for (int i = 0; i < neural_net.size(); i++)
     {
@@ -1687,8 +1686,9 @@ void NNclone::forward_pass(const NN &cloned, std::vector<float> &inputs, float a
                 neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].weights[l].value * in;
             }
             neuron_states[cloned.layermap[i][j]] += cloned.neural_net[cloned.layermap[i][j]].bias;
+            const float pre_activation = neuron_states[cloned.layermap[i][j]];
             const float al = cloned.neural_net[cloned.layermap[i][j]].alpha;
-            neuron_states[cloned.layermap[i][j]] = (neuron_states[cloned.layermap[i][j]]) + (al * activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a));
+            neuron_states[cloned.layermap[i][j]] = pre_activation + (al * activation_function(neuron_states[cloned.layermap[i][j]],cloned.neural_net[cloned.layermap[i][j]].activation_function_v,a));
         }
     } 
     #pragma omp simd

@@ -146,7 +146,7 @@ struct NN
     //does the value of every "memory neuron" influence all output neurons
     bool memory_connection_check(bool rc = true);
 
-    //c_step_size is the number of connections added before each check, io check input to output, im check input to memeory, mo memory to output, and rc whether to consider recurrent connections or not
+    //c_step_size is the number of connections added before each check, io check input to output, im check input to memory, mo memory to output, and rc whether to consider recurrent connections or not
     void ensure_connection(int c_step_size ,bool io = true, bool im = true, bool mo = true, bool rc = true);
     void depth_check();
 };
@@ -183,7 +183,18 @@ struct NNclone
 
 
 
+/*
+Citations
+GAUSSIAN ERROR LINEAR UNITS (Dan Hendrycks& Kevin Gimpel) : https://arxiv.org/abs/1606.08415
 
+Cognitron: A self-organizing multilayered neural network (Kunihiko Fukushima ) : https://link.springer.com/article/10.1007/BF00342633
+
+"A handy approximation for the error function and its inverse" by Sergei Winitzki.: https://www.academia.edu/9730974/A_handy_approximation_for_the_error_function_and_its_inverse
+
+Delving Deep into Rectifiers: Surpassing Human-Level Performance on ImageNet Classification (Kaiming He et Al.) : https://arxiv.org/abs/1502.01852v1
+
+ReZero(Bachlechner et Al.) : https://arxiv.org/pdf/2003.04887.pdf 
+*/
 
 
 
