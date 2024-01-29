@@ -6,4 +6,5 @@ Here we will implement the units to build up the fastlane neural networks as sim
 Then we can treat these artificial neural networks as single neurons for fastlane! In fact if we reframe it, it could be akin to learning a activation function. Of course in general this is redundant, artificial neural networks can approximate virtually any function in a bounded range by the UAT, but doing this allows the fastlane architecture to ustilise compute more effectively.
 
 As for the implementation so far the individual component artificial neural networks have 3 activation functions programmed, ReLU, sin and "log_relu" defined as
+
 $f(x) = ln(ReLU(x) + 1)$
