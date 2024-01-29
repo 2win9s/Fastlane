@@ -8,14 +8,9 @@ Recurrent neural networks suffer from the vanishing/ exploding gradient problem,
 So for the silly idea, "fast lane". 
 LSTM retains the information by storing it in the cell state and has the values of the cell state regulated by gates. 
 
-So what if we allow some neurons to be "cell states" i.e. the preactivation z of the the neuron at timestep t is equal to the dot product of weights and state of input neuron (which can be the state at the current timestep or past timestep) plus the previous state,
-```math
-z_t = f(z_{t-1}) + W \cdot I_{t or t-1}
-```
-where f is the activation function, W is the slice of the weights matrix corresponding to that neuron and I is the vector of inputs to the neuron. No bias as it is counterproductive, if the state is supposed to remember why try and "erode" it every timestep with a bias?
-It probably is possible to have weights and biases that would allow such a neural network to act as an LSTM, but one look at that equation and you know things might just explode as t -> ∞, if we use standard initialisation methods and ReLU or its relatives. 
+Echo state networks can also store information for many timesteps
 
-This also isn't an ordinary "layer defined" network. Instead the neurons will be defined by an index sequence in ascending order, and any neuron can take any other neuron as input(the "fastlane" part, every connection can be a skip connection), and the order of activation is sequential. e.g. index 0 has weight connection from index 20 when index 20 is input, index 0 must therefore be taking the state of index 20 at timestep t - 1 as index 20 has a higher index and its state at timestep t hasn't been evaluated yet. 
+So instead of an ordinary "layer defined" network, the neurons will be defined by an index sequence in ascending order, and any neuron can take any other neuron as input(the "fastlane" part, every connection can be a skip connection), and the order of activation is sequential. e.g. index 0 has weight connection from index 20 when index 20 is input, index 0 must therefore be taking the state of index 20 at timestep t - 1 as index 20 has a higher index and its state at timestep t hasn't been evaluated yet. 
 
 the preactivation z of the the neuron at timestep t is equal to the dot product of weights and state input neuron values(which can be the state at the current timestep or past timestep) and the bias,
 ```math
