@@ -118,10 +118,8 @@ struct neuron_unit
     float bias[16]  = {0};   
     float alpha[16] = {0};     //from Re:Zero is all you need 
     float weights[9][7];
-    /*
     float padding = 0;         //pads it to 112 fp32s (commonly), a multiple of 64 bytes (common cache line size)
     // NOTE, this may be useless as std::variant with its own memory footprint wil be used
-    */
     neuron_unit(){
         //  Xavier initialisation
         std::normal_distribution<float> a (0,0.5);            // input to 1st hidden layer
@@ -217,7 +215,7 @@ inline void forwardpass(neuron &n,float input, float (&pacts)[16]){ //pacts here
         #pragma omp simd
         for (uint8_t j = 0; j < 7; j++)
         {
-            n.units[i] += n.units[j+1] * n.weights[i-6][j];
+            n.units[i] += n.units[j+1] * n.weights[i-7][j];
         }    
     }
     #pragma omp simd
@@ -230,7 +228,7 @@ inline void forwardpass(neuron &n,float input, float (&pacts)[16]){ //pacts here
     #pragma omp simd
     for (uint8_t i = 8; i < 15; i++)
     {
-        n.units[15] += n.units[i] * n.weights[8][i-7];
+        n.units[15] += n.units[i] * n.weights[8][i-8];
     }
     pacts[15] = act_func(n.units[15],n);
     n.units[15] += pacts[15] * n.alpha[15];
@@ -261,7 +259,7 @@ inline void forwardpass(neuron &n, float input){
         #pragma omp simd
         for (uint8_t j = 0; j < 7; i++)
         {
-            n.units[i] += n.units[j+1] * n.weights[i-6][j];
+            n.units[i] += n.units[j+1] * n.weights[i-7][j];
         }    
     }
     #pragma omp simd
@@ -274,7 +272,7 @@ inline void forwardpass(neuron &n, float input){
     #pragma omp simd
     for (uint8_t i = 8; i < 15; i++)
     {
-        n.units[15] += n.units[i] * n.weights[8][i-7];
+        n.units[15] += n.units[i] * n.weights[8][i-8];
     }
     n.units[15] += act_func(n.units[15],n) * n.alpha[15];
 }
@@ -291,22 +289,21 @@ inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pact
     for(int i = 8 ; i < 15; i++){
         n.units[i] = dldz*n.weights[8][i-8];
         gradients.weights[8][i-8] += dldz*past_unit[i];
-        float dz = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
-        gradients.bias[i] += dz;
         gradients.alpha[i] += n.units[i] * pacts[i];
+        n.units[i] = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
+        gradients.bias[i] += n.units[i];
         for (int j = 0; j < 7; j++)
         {
-            n.units[j+1] += dz * n.weights[i-7][j];
-            gradients.weights[i-7][j] += dz*past_unit[j+1];
+            n.units[j+1] += n.units[i] * n.weights[i-7][j];
+            gradients.weights[i-7][j] += n.units[i]*past_unit[j+1];
         }
     }
-    for (int i = 0; i < 7; i++)
+    for (int i = 1; i < 8; i++)
     {
-        float dz = n.units[i+1]*(1 + (n.alpha[i+1] * dact_func(pacts[i+1],n))); 
-        gradients.bias[i+1] += dz;
-        gradients.alpha[i+1] += n.units[i+1] * pacts[i+1];
-        n.units[0] += dz * n.weights[0][i];
-        gradients.weights[0][i] -= dz*past_unit[0];
+        gradients.alpha[i] += n.units[i] * pacts[i];
+        n.units[i] = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
+        gradients.bias[i] += n.units[i];
+        n.units[0] += n.units[i] * n.weights[0][i-1];
     }
     gradients.alpha[0] += n.units[0] * pacts[0];
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
@@ -321,16 +318,17 @@ inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pact
     #pragma omp simd collapse(2)
     for(int i = 8 ; i < 15; i++){
         n.units[i] = dldz*n.weights[8][i-8];
-        float dz = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
+        n.units[i] = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
         for (int j = 0; j < 7; j++)
         {
-            n.units[j+1] += dz * n.weights[i-7][j];
+            n.units[j+1] += n.units[i] * n.weights[i-7][j];
+            gradients.weights[i-7][j] += n.units[i]*past_unit[j+1];
         }
     }
-    for (int i = 0; i < 7; i++)
+    for (int i = 1; i < 8; i++)
     {
-        float dz = n.units[i+1]*(1 + (n.alpha[i+1] * dact_func(pacts[i+1],n))); 
-        n.units[0] += dz * n.weights[0][i];
+        n.units[i] = n.units[i]*(1+(n.alpha[i]*dact_func(pacts[i],n)));
+        n.units[0] += n.units[i] * n.weights[0][i-1];
     }
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
     return n.units[0];
