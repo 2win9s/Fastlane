@@ -8,3 +8,9 @@ Then we can treat these artificial neural networks as single neurons for fastlan
 As for the implementation so far the individual component artificial neural networks have 3 activation functions programmed, ReLU, sin and "log_relu" defined as
 
 $f(x) = ln(ReLU(x) + 1)$
+
+Although it introduces significant computational overhead the hope is that the sine and "log_relu" functions can allow for better out of sample performance, capturing periodic properties and interactions beyond approximating at a limited range.
+
+
+
+Of course everything here is untested at the moment, the previous attempts at sentiment analysis were less than great (<50% accuracy at differentiating positive, negative and neutral, see releases). I'm hoping to improve on that here.
