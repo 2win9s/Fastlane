@@ -1,5 +1,5 @@
 # An unique artificial neural nework architecture from scratch
-Has similiarities with echo state networks
+Inspired by echo state networks
 
 This is a continuation of a futile sci-fest entry that I did with friends during TY (the github repo for the old project has been privated, this is a complete fresh re-write + a few new ideas).
 
