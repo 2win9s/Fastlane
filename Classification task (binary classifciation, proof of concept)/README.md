@@ -1,4 +1,7 @@
 # Classification on [SAheart dataset](https://hastie.su.domains/ElemStatLearn/datasets/) using fastlane
+Note the executables must be executed from the command prompt or else the window will quickly close when it terminates, e.g. use ./test.exe.
+The executables were compiled with the icpx compiler from intel oneAPI with the optimisation flag -O3
+
 Binary classification dataset on variable chd from: http://statweb.stanford.edu/~tibs/ElemStatLearn/datasets/SAheart.data
 info on dataset is from: https://hastie.su.domains/ElemStatLearn/datasets/SAheart.info.txt
 
