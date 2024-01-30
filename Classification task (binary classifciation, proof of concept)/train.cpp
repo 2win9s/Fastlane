@@ -160,6 +160,6 @@ int main(){
         }
         
     }
-    model.save_to_txt("model2.txt");
+    model.save_to_txt("model1.txt");
     return 0;
 }   
