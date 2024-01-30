@@ -7,6 +7,7 @@
 #include <filesystem>
 #include "version0.hpp"
 #include <variant>
+#include<array>
 std::random_device ran;                          
 std::mt19937 mtwister(ran());
 
@@ -17,8 +18,8 @@ float dmse(float out, float target){
 
 float test_batch(relu_neuron &n){
     float mse = 0;
-    float dacts[16] = {0};
-    float mem[16] = {0};
+    std::array<float,16> dacts;
+    std::array<float,16> mem;
     neuron_gradients grads;
     neuron_gradients new_grads;
     grads.valclear();
@@ -87,7 +88,7 @@ float test_batch(relu_neuron &n){
             std::exit(0);
         }
         backprop(n,dmse(n.units[15],target),mem,dacts,new_grads);
-        grads.sgd_with_momentum(n,0.01,0.9,new_grads);
+        grads.sgd_with_momentum(n,0.01,0.7,new_grads);
         new_grads.valclear();
     }
     return mse/2000;

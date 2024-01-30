@@ -23,29 +23,53 @@
 #include<filesystem>
 #include<variant>
 #include<omp.h>
+#include<array>
+
+
+std::uniform_real_distribution<float> zero_to_one(0.0,1.0);
 
 // keyboard mashed the name for these because standard names like r_dev will be defined elsewhere and clash
 std::random_device rsksksksksks;                          
 std::mt19937 ttttt(rsksksksksks());
+
+float sign_of(float x){
+    return((std::signbit(x) * -2) + 1);
+}
+
+//based on "A handy approximation for the error function and its inverse" by Sergei Winitzki.,
+//https://www.academia.edu/9730974/A_handy_approximation_for_the_error_function_and_its_inverse
+float approx_erfinv(float x){
+    static const double a = 0.6802721088435374;         //this is 1/1.47
+    static const float pita_inv = 0.4330746750799873;  //this is 1/1.47 times 1/pi times 2
+    float w = 1-x*x;
+    w = (w == 1) ? 0.999999:w;
+    w = std::log(w);
+    float u = pita_inv+(w*0.5);
+    float val = std::sqrt(-u + std::sqrt((u * u) - (a * w)));
+    return(val * sign_of(x));
+}
+
+
+
 
 /*
 # activation functions and their derivatives
 */
 
 inline float relu(float x){
-    return ((x>0) ? x:0);
+    return ((x>0.0f) ? x:0.0f);
 }
 inline float drelu(float fx){
-    return ((fx>0) ? 1:0);
+    return ((fx>0.0f) ? 1.0f:0.0f);
 }
 
 // it may be useful to utilise log space 
 // so this function is simply ln(relu(x)+1)
 inline float log_relu(float x){
-    return std::logf((x>0) ? (x+1):1);
+    return std::logf((x>0.0f) ? (x+1.0f):1.0f);
 }
 inline float dlog_relu(float fx){
-    return ((fx>0) ? std::expf(-fx):0);
+    return ((fx>0.0f) ? std::expf(-fx):0.0f);
 }
 
 // function to compute cos(x) from sin(x)
@@ -118,8 +142,7 @@ struct neuron_unit
     float bias[16]  = {0};   
     float alpha[16] = {0};     //from Re:Zero is all you need 
     float weights[9][7];
-    float padding = 0;         //pads it to 112 fp32s (commonly), a multiple of 64 bytes (common cache line size)
-    // NOTE, this may be useless as std::variant with its own memory footprint wil be used
+    int isinput = 0;         
     neuron_unit(){
         //  Xavier initialisation
         std::normal_distribution<float> a (0,0.5);            // input to 1st hidden layer
@@ -192,7 +215,7 @@ inline void valclear(neuron &n){    //wrapper function for memset on units
 };
 
 template <typename neuron>
-inline void forwardpass(neuron &n,float input, float (&pacts)[16]){ //pacts here refers to values obtained after applying activation function
+inline void forwardpass(neuron &n,float input, std::array<float,16> &pacts){ //pacts here refers to values obtained after applying activation function
     n.units[0] = input;
     n.units[0] += n.bias[0];
     pacts[0] = act_func(n.units[0],n);
@@ -279,7 +302,7 @@ inline void forwardpass(neuron &n, float input){
 
 // note the units array will be used to store gradients
 template <typename neuron>
-inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pacts)[16], neuron_gradients &gradients)
+inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients)
 {   
     gradients.alpha[15] += dldz * pacts[15];
     dldz = dldz * (1 + (n.alpha[15] * dact_func(pacts[15],n)));
@@ -312,7 +335,7 @@ inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pact
 }    
 // backprop but we aren't interested in gradients for the neuron and only the gradient passed out
 template <typename neuron>
-inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pacts)[16]){   
+inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts){   
     dldz = dldz * (1 + (n.alpha[15] * dact_func(pacts[15],n)));
     memset(n.units,0,8*sizeof(float));
     #pragma omp simd collapse(2)
@@ -334,28 +357,462 @@ inline float backprop(neuron &n,float dldz, float (&past_unit)[16], float (&pact
     return n.units[0];
 }
 
-struct neural_network{
+
+// pdf is f(x) = m(a^2*e^(a^2)) where a(x) = 10(x-0.5), m is a constant approx =11.28379...., in the interval 0 < x < 1
+// has a shape with 2 humps around 0.5
+float custom_dist(){
+    float x = zero_to_one(ttttt);
+    x = 1 - 2*x;
+    x = 0.1 * (5 - approx_erfinv(x));
+    return x;
+}
+
+struct neural_net_record{
+    std::vector<std::array<float,16>> values;
+    void valclear(){
+        for (int i = 0; i < values.size(); i++)
+        {
+            #pragma omp simd
+            for (int j = 0; j < 16; j++)
+            {
+                values[i][j] = 0;
+            }
+            
+        }
+    }
+    neural_net_record(int size)
+    : values(size)
+    {
+        valclear();
+    }
+};
+
+
+/*starting off simple with homogenous fastlane networks*/
+struct relu_neural_network{
+    struct index_value_pair
+    {
+        int index;
+        float value;
+        index_value_pair(int x, float y){
+            index = x;
+            value = y;
+        }
+    };
     std::vector<relu_neuron> relu_net;
-    std::vector<log_relu_neuron> log_relu_net;
-    std::vector<sine_neuron> sine_neuron_net;
-    std::vector<std::vector<float>> weights;// to improve performance consider implementing a interface to a 1d vector instead
+    //std::vector<log_relu_neuron> log_relu_net;
+    //std::vector<sine_neuron> sine_neuron_net;
+    std::vector<std::vector<index_value_pair>> weights;// to improve performance consider implementing a interface to a 1d vector instead
+    struct network_gradient
+    {
+        std::vector<neuron_gradients> net_grads;
+        std::vector<std::vector<float>> weight_gradients;
+        network_gradient(relu_neural_network & NN)
+        :net_grads(NN.relu_net.size())
+        ,weight_gradients(NN.relu_net.size())
+        {
+            for (int i = 0; i < NN.relu_net.size(); i++)
+            {
+                weight_gradients[i].resize(NN.weights[i].size());
+                for (int j = 0; j < weight_gradients[i].size(); j++)
+                {
+                    weight_gradients[i][j] = 0;
+                }
+            }
+            
+        }
+        void sync(relu_neural_network & NN){
+            for (int i = 0; i < NN.relu_net.size(); i++)
+            {
+                weight_gradients[i].resize(NN.weights[i].size());
+                for (int j = 0; j < weight_gradients[i].size(); j++)
+                {
+                    weight_gradients[i][j] = 0;
+                }
+            }
+        }
+
+        void valclear(){
+            for (int i = 0; i < net_grads.size(); i++)
+            {
+                net_grads[i].valclear();
+            }
+            for (int i = 0; i < weight_gradients.size(); i++)
+            {
+                for (int j = 0; j < weight_gradients[i].size(); j++)
+                {
+                    weight_gradients[i][j] = 0;
+                }
+                
+            }
+            
+        }
+
+        //neuron &n, float learning_rate, float momentum, neuron_gradients current_grad
+        inline void sgd_with_momentum(relu_neural_network &n, float learning_rate, float momentum, network_gradient &current_gradient){
+            for (int i = 0; i < n.relu_net.size(); i++)
+            {
+                net_grads[i].sgd_with_momentum(n.relu_net[i],learning_rate,momentum,current_gradient.net_grads[i]);
+            }
+            for (int i = 0; i < weight_gradients.size(); i++)
+            {
+                for (int j = 0; j < weight_gradients.size(); j++)
+                {
+                    weight_gradients[i][j] *= momentum;
+                    current_gradient.weight_gradients[i][j] *= learning_rate;
+                    weight_gradients[i][j] += current_gradient.weight_gradients[i][j];
+
+                    n.weights[i][j].value -= weight_gradients[i][j];
+                }
+                
+            }
+            
+        }
+    };
+
+    
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<std::vector<int>> layermap;
-    std::vector<std::vector<bool>> dependency;
+    std::vector<std::vector<bool>> dependency; //reduces time needed to update layermap, warning for very VERY large neural nets will eat up memory
     
-    neural_network(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, std::vector<int> memory_neurons, float connection_density, float connection_sd)
+    // for creating/updating the layermap
+    void layermap_sync()
     {
+        layermap.clear();
+        dependency.reserve(relu_net.size());
+        dependency.resize(relu_net.size());
+        //std::vector<bool> index_label(neural_net.size(),true);          
+        //this is to help label the neurons (not included yet in layermap = true)
+        bool* index_label = new bool[relu_net.size()]; 
+        std::vector<std::vector<int>> input_tree(relu_net.size());
+        for (int i = 0; i < relu_net.size(); i++)
+        {
+            index_label[i] = true;
+        }
+        /**/
+        for (int i = 0; i < dependency.size(); i++)
+        {
+            dependency[i].resize(relu_net.size(),false);
+            std::fill(dependency[i].begin(),dependency[i].end(),false);
+            for (int j = 0; j < weights[i].size(); j++)
+            {
+                if (weights[i][j].index > i)
+                {
+                    continue;
+                }
+                dependency[i][weights[i][j].index] = true;  //set union may be faster test for use case
+            }
+        }
+        //std::cout<<std::endl;
+        std::vector<int> layermap_layer_candidate;
+        int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
+        int mapped_n = 0;
+        while(true)                                 
+        {
+            if (relu_net.size() == 0)
+            {
+                std::cout<<"ERROR, neural net with 0 neurons"<<std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+                                    
+            layermap_layer_candidate.clear();
+            layermap_layer_candidate.reserve(relu_net.size() - mapped_n);
+            for (int i = initial_neuron; i < relu_net.size(); i++)
+            {   
+                if(index_label[i])
+                {
+                    bool independent = true;
+                    for (int j = initial_neuron; j < relu_net.size(); j++)
+                    {
+                        bool tf = dependency[i][j];                    
+                        if (tf && index_label[j])
+                        {
+                            independent = false;
+                            break;
+                        }
+                    }
+                    if (independent)
+                    {
+                        layermap_layer_candidate.push_back(i);
+                    }   
+                }
+            }
+            if (layermap_layer_candidate.size() == 0)
+            {
+                for (int i = 0; i < relu_net.size(); i++)
+                {
+                    if (index_label[i])
+                    {
+                        /*
+                        for (int j = 0; j < neural_net[i].weights.size(); j++)
+                        {
+                            std::cout<<neural_net[i].weights[j].index<<"\n";
+                        }*/
+                        std::cout<<std::endl;
+                        std::cout<<"something went wrong in layermap function, check weights of neuron "<<i<<std::endl;
+                        std::exit(EXIT_FAILURE);
+                    }
+                }
+                
+            }
+            
+            mapped_n += layermap_layer_candidate.size();
+            for (int i = 0; i < layermap_layer_candidate.size(); i++)
+            {
+                index_label[layermap_layer_candidate[i]] = false;
+            }
+            layermap.emplace_back(layermap_layer_candidate);            //adding a new layer
+            for (int i = initial_neuron; i < relu_net.size(); i++)
+            {
+                if(index_label[i])
+                {
+                    initial_neuron = i;
+                    break;
+                }
+                if (i == (relu_net.size() - 1))                       //if all neurons are now in layermap the function has completed
+                {
+                    delete[] index_label;
+                    return;
+                }       
+            }
+        }
+        delete[] index_label;
+    }
 
+    relu_neural_network(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd)
+    :relu_net(size,relu_neuron())
+    ,input_index(input_neurons)
+    ,output_index(output_neurons)
+    {
+        std::normal_distribution<float> connection_dist(connection_density, connection_sd);
+        for (int i = 0; i < input_index.size(); i++)
+        {
+            relu_net[input_index[i]].isinput = 1;
+        }
+        for (int i = 0; i < size; i++)
+        {
+            if (relu_net[i].isinput)
+            {
+                continue;
+            }
+            float density = connection_dist(ttttt);         //number of connections for each neuron is distributed normally around connection_density with standard deviation connection_sd
+            if(density < 0){
+                density = 0;
+            }
+            else if (density > 1)
+            {
+                density = 1;
+            }
+            int connect_n =  std::floor(density * (size - 1));          //this is the number of input connections
+            std::set<int> input_i = {};
+            for (int j = 0; j < connect_n; j++)
+            {
+                int remaining = size - 2 - weights[i].size();
+                int input_neuron_index = std::floor((remaining) * (custom_dist() - 0.5));
+                int wrap_around  = (input_neuron_index < 0) * (remaining + input_neuron_index);
+                wrap_around = (wrap_around > input_neuron_index) ? wrap_around:input_neuron_index;
+                input_neuron_index = (wrap_around % (remaining));
+                int pos = 0;
+                bool gapped = true;
+                for(int k = 0; k < weights[i].size(); k++)
+                {
+                    if ((input_neuron_index >= i) && gapped)
+                    {
+                        gapped = false;
+                        input_neuron_index++;
+                    }
+                    if (input_neuron_index >= weights[i][k].index)
+                    {
+                        input_neuron_index++;
+                        pos++;
+                        continue;
+                    }
+                    if ((input_neuron_index >= i) && gapped)
+                    {
+                        gapped = false;
+                        input_neuron_index++;
+                        continue;
+                    }
+                    break;
+                }
+                if ((input_neuron_index >= i) && gapped)
+                {
+                    input_neuron_index++;
+                }
+                weights[i].insert(weights[i].begin() + pos,index_value_pair(input_neuron_index,0.0f));    
+            }
+        }
+        layermap_sync();
+        float multiplier = 1.0/std::sqrt(layermap.size());
+        for (int i = 0; i < size; i++)
+        {   //not really the correct way to use He initialisation but eh
+            int input_layer_size = weights[i].size();
+            std::normal_distribution<float> weight_init_dist(0 , sqrt(1/input_layer_size));
+            for(int j = 0; j < input_layer_size; j++)
+            {
+                if (weights[i][j].index > i)
+                {
+                    weights[i][j].value = 0;
+                }
+                else{
+                    weights[i][j].value = weight_init_dist(ttttt) /*multiplier*/;
+                }
+            } 
+        }
+    }
+
+    inline void valclear(){
+        for (int i = 0; i < relu_net.size(); i++)
+        {
+            memset(relu_net[i].units,0,16*sizeof(float));
+        }
+    }
+
+    inline void record(neural_net_record &post){
+        for (int i = 0; i < relu_net.size(); i++)
+        {
+            for (int j = 0; j < 16; j++)
+            {
+                post.values[i][j] = relu_net[i].units[j];
+            }   
+        }
+    }
+
+    inline void sforwardpass(std::vector<float> &inputs, neural_net_record &pre, neural_net_record &post){
+        valclear();
+        for (int i = 0; i < input_index.size(); i++)
+        {
+            relu_net[input_index[i]].units[0] = inputs[i];
+        }
+        for (int i = 0; i < layermap.size(); i++)
+        {
+            for (int j = 0; j < layermap[i].size(); j++)
+            {   
+                float inp = 0;
+                for (int l = 0; l < weights[layermap[i][j]].size(); l++)
+                {
+                    const int in_indx = weights[layermap[i][j]][l].index;
+                    const float in = (in_indx > layermap[i][j]) ? 0.0f : relu_net[in_indx].units[15];
+                    //apologies for the naming scheme
+                    inp += weights[layermap[i][j]][l].value * in;
+                }
+                forwardpass(relu_net[layermap[i][j]],inp,pre.values[layermap[i][j]]);
+            }
+        }
+        record(post);
     }
     
-    inline void forwardpass();
-    inline void backpropagation();
-
-
+    inline void sbackpropagation(std::vector<float> &dloss, neural_net_record &pre, neural_net_record &post, network_gradient &net_grad){
+        std::vector<float> gradients(dloss.size(),0);
+        for (int i = 0; i < output_index.size(); i++)
+        {
+            gradients[output_index[i]] = dloss[i];
+        }
+        for (int i = layermap.size() - 1; i >= 0; i--)
+        {
+            for(int j = 0; j < layermap[i].size(); j++){
+                float dldz = backprop(relu_net[layermap[i][j]],gradients[layermap[i][j]],post.values[layermap[i][j]],pre.values[layermap[i][j]],net_grad.net_grads[layermap[i][j]]);
+                for (int k = 0; k < weights[layermap[i][j]].size(); k++)
+                {
+                    if (weights[layermap[i][j]][k].index > layermap[i][j])
+                    {
+                        continue;
+                    }
+                    gradients[weights[layermap[i][j]][k].index] += dldz * weights[layermap[i][j]][k].value;
+                    net_grad.weight_gradients[layermap[i][j]][k] += dldz * post.values[weights[layermap[i][j]][k].index][15];
+                }
+            }
+        }        
+    }
 
     // saving to and loading from a text file
-    inline void save_to_txt();
-    neural_network(std::string textfile);
+    inline void save_to_txt(std::string file_name){
+        std::ofstream file(file_name,std::fstream::trunc);
+        file << "number_of_neurons:"<<"\n";
+        file << relu_net.size() << "\n";
+        file << "input_index" <<"\n";
+        
+        for (int i = 0; i < input_index.size(); i++)
+        {
+            file << input_index[i] << " ";
+        }
+        file << "\n";
+        file << "output_index" << "\n";
+        for (int i = 0; i < output_index.size(); i++)
+        {
+            file << output_index[i] << " ";
+        }
+        file << "\n";
+        file << "<layermap>" << "\n";
+        for (int i = 0; i < layermap.size(); i++)
+        {
+            file << "no_of_neurons" << "\n";
+            file << layermap[i].size() << "\n";
+            for (int j = 0; j < layermap[i].size(); j++)
+            {
+                file << layermap[i][j] << " ";
+            }
+            file << "\n";
+            if(i != (layermap.size() -1)){
+                file << "next_layer" << "\n";
+            }
+        }
+        file << "</layermap>" <<"\n";
+        file << "<weights>" << "\n";
+        for (int i = 0; i < relu_net.size(); i++)
+        {
+            file << "no_of_weights" << "\n";
+            file << weights[i].size() << "\n";
+            for (int j = 0; j < weights[i].size(); j++)
+            {
+                file << weights[i][j].index << " ";
+                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                << weights[i][j].value << "\n";
+            }
+            file << "---------" << "\n";
+        }
+        for (int i = 0; i < relu_net.size(); i++)
+        {
+            file << "<neuron>" << "\n";
+            file << "<bias>" << "\n";
+            for (int j = 0; j < 16; j++)
+            {
+                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                << relu_net[i].bias[j] << "\n";
+            }
+            file << "</bias>" << "\n";
+
+            file << "<alpha>" << "\n";
+            for (int j = 0; j < 16; j++)
+            {
+                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                << relu_net[i].alpha[j] << "\n";
+            }
+            file << "</alpha>" << "\n";
+            file << "<nweights>" << "\n";
+            for (int j = 0; j < 9; j++)
+            {
+                for (int k = 0; k < 7; k++)
+                {
+                    file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                    << relu_net[i].weights[j][k] << "\n";
+                }
+                
+            }
+            file << "</nweights>" << "\n";
+            file << "</neuron>" << "\n";
+        }
+        file << "<end>" << "\n";
+        file.close();
+    }
+    relu_neural_network(std::string file_name){
+        std::string str_data;
+        std::vector<int> output_in;
+        std::vector<int> input_in;
+        std::ifstream file(file_name);
+        if (file.good()){;}else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
+
+    }
 };
 
