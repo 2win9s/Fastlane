@@ -408,7 +408,7 @@ struct relu_neural_network{
         std::vector<neuron_gradients> net_grads;
         std::vector<std::vector<float>> weight_gradients;
         network_gradient(relu_neural_network & NN)
-        :net_grads(NN.relu_net.size())
+        :net_grads(NN.relu_net.size(),neuron_gradients())
         ,weight_gradients(NN.relu_net.size())
         {
             for (int i = 0; i < NN.relu_net.size(); i++)
@@ -454,14 +454,14 @@ struct relu_neural_network{
             {
                 net_grads[i].sgd_with_momentum(n.relu_net[i],learning_rate,momentum,current_gradient.net_grads[i]);
             }
+
             for (int i = 0; i < weight_gradients.size(); i++)
             {
-                for (int j = 0; j < weight_gradients.size(); j++)
+                for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] *= momentum;
                     current_gradient.weight_gradients[i][j] *= learning_rate;
                     weight_gradients[i][j] += current_gradient.weight_gradients[i][j];
-
                     n.weights[i][j].value -= weight_gradients[i][j];
                 }
                 
@@ -490,7 +490,6 @@ struct relu_neural_network{
         {
             index_label[i] = true;
         }
-        /**/
         for (int i = 0; i < dependency.size(); i++)
         {
             dependency[i].resize(relu_net.size(),false);
@@ -504,7 +503,6 @@ struct relu_neural_network{
                 dependency[i][weights[i][j].index] = true;  //set union may be faster test for use case
             }
         }
-        //std::cout<<std::endl;
         std::vector<int> layermap_layer_candidate;
         int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
         int mapped_n = 0;
@@ -515,7 +513,6 @@ struct relu_neural_network{
                 std::cout<<"ERROR, neural net with 0 neurons"<<std::endl;
                 std::exit(EXIT_FAILURE);
             }
-                                    
             layermap_layer_candidate.clear();
             layermap_layer_candidate.reserve(relu_net.size() - mapped_n);
             for (int i = initial_neuron; i < relu_net.size(); i++)
@@ -556,7 +553,6 @@ struct relu_neural_network{
                 }
                 
             }
-            
             mapped_n += layermap_layer_candidate.size();
             for (int i = 0; i < layermap_layer_candidate.size(); i++)
             {
@@ -584,6 +580,7 @@ struct relu_neural_network{
     :relu_net(size,relu_neuron())
     ,input_index(input_neurons)
     ,output_index(output_neurons)
+    ,weights(size)
     {
         std::normal_distribution<float> connection_dist(connection_density, connection_sd);
         for (int i = 0; i < input_index.size(); i++)
@@ -665,7 +662,11 @@ struct relu_neural_network{
     inline void valclear(){
         for (int i = 0; i < relu_net.size(); i++)
         {
-            memset(relu_net[i].units,0,16*sizeof(float));
+            for (int j = 0; j < 16; j++)
+            {
+                relu_net[i].units[j] = 0;
+            }
+            
         }
     }
 
@@ -689,22 +690,21 @@ struct relu_neural_network{
         {
             for (int j = 0; j < layermap[i].size(); j++)
             {   
-                float inp = 0;
                 for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                 {
                     const int in_indx = weights[layermap[i][j]][l].index;
                     const float in = (in_indx > layermap[i][j]) ? 0.0f : relu_net[in_indx].units[15];
                     //apologies for the naming scheme
-                    inp += weights[layermap[i][j]][l].value * in;
+                    relu_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].value * in;
                 }
-                forwardpass(relu_net[layermap[i][j]],inp,pre.values[layermap[i][j]]);
+                forwardpass(relu_net[layermap[i][j]],relu_net[layermap[i][j]].units[0],pre.values[layermap[i][j]]);
             }
         }
         record(post);
     }
     
     inline void sbackpropagation(std::vector<float> &dloss, neural_net_record &pre, neural_net_record &post, network_gradient &net_grad){
-        std::vector<float> gradients(dloss.size(),0);
+        std::vector<float> gradients(relu_net.size(),0);
         for (int i = 0; i < output_index.size(); i++)
         {
             gradients[output_index[i]] = dloss[i];
@@ -723,7 +723,7 @@ struct relu_neural_network{
                     net_grad.weight_gradients[layermap[i][j]][k] += dldz * post.values[weights[layermap[i][j]][k].index][15];
                 }
             }
-        }        
+        }
     }
 
     // saving to and loading from a text file
@@ -812,7 +812,7 @@ struct relu_neural_network{
         std::vector<int> input_in;
         std::ifstream file(file_name);
         if (file.good()){;}else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
-
+        
     }
 };
 
