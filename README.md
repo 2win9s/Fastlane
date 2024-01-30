@@ -1,4 +1,7 @@
 # An unique artificial neural nework architecture from scratch
+NN file and Implementation is previous attempt, new implementation in folder hivemind under the headerfile versionX.hpp, e.g. X = 0.
+
+
 Inspired by echo state networks
 
 This is a continuation of a futile sci-fest entry that I did with friends during transition year in secondary school (the github repo for the old project has been privated, this is a complete fresh re-write + a few new ideas).
