@@ -36,4 +36,4 @@ or even have new neurons introduced. As a consequence popular normalisation meth
 Since tensorflow, pytorch etc. don't seem to offer the exact functionality I needed and also considering just how slow python is (any performace intestive computation in pure python is a nightmare), this entire project is in C++ the artificial neural networks are implemented from scratch (but of course I use the c++ standard library and openmp, no boost though). 
 
 
-Will a complete rewrite soon, current code is not conducive of takign advantage of cache locality and simd instructions
+Will a complete rewrite soon, current code is not conducive of utilising the advantage of cache locality and simd instructions
