@@ -10,6 +10,6 @@ train_set_size = math.floor(len(SA)*0.75) # 75:25 split train:test
 np.random.seed(863691977) # setting a seed for reproducible results
 shuffled_indices = np.random.permutation(range(len(SA)))
 SA_train = SA.iloc[shuffled_indices[:train_set_size],:].reset_index(drop=True)
-SA_train.to_csv("SAheart.csv()")
+SA_train.to_csv("SAheart.csv")
 test = SA.iloc[shuffled_indices[train_set_size:],:].reset_index(drop=True)
 test.to_csv("test.csv")
