@@ -19,7 +19,7 @@ The sensitivity is 0.55102
 
 The specificity is 0.746269
 
-for the traininf set:
+for the training set:
 
 The average cross entrophy loss is 0.243581
 
