@@ -1,1 +1,1 @@
-# Classification on SAheart dataset from https://hastie.su.domains/ElemStatLearn/datasets/
+# Classification on [SAheart dataset](https://hastie.su.domains/ElemStatLearn/datasets/)
