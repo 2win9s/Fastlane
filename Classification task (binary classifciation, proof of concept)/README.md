@@ -16,3 +16,14 @@ The sensitivity is 0.55102
 
 The specificity is 0.746269
 
+for the traininf set:
+
+The average cross entrophy loss is 0.243581
+
+The accuracy is 0.893064
+
+The sensitivity is 0.972973
+
+The specificity is 0.855319
+
+The model is currently overfit, perhaps better performance can be squeezed out with more data, less parameters or stopping training early.
