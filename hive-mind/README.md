@@ -14,3 +14,6 @@ Although it introduces significant computational overhead the hope is that the s
 
 
 Of course everything here is untested at the moment, the previous attempts at sentiment analysis were less than great (<50% accuracy at differentiating positive, negative and neutral, see releases). I'm hoping to improve on that here.
+
+
+IMPLEMENTED SO FAR : fastlane network of relu_neurons with simple backprop and forwardpass (no backpropagation through time yet)
