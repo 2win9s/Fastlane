@@ -25,7 +25,7 @@ The result is that a neuron will take the value of the input neuron's state at t
 An obvious isssue is neurons are not fixed to a certain layer, can end up in different ones at different points during training, 
 or even have new neurons introduced. As a consequence popular normalisation methods that enable the training of very deep neural networks such as batchnorm and layernorm cannot be applied. Thus [ReZero](https://arxiv.org/abs/2003.04887) (Bachlechner et al 2020) is used, as it is a mostly architecture agnostic method that seems to work.
 
-The folder 
+The folder "Classification task (binary classifciation, proof of concept)" demonstrates that should a neural network can be trained at least in the simple non recurrent case, further experimentation will be conducted
  
 
 
