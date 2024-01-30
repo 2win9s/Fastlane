@@ -744,6 +744,8 @@ struct relu_neural_network{
             file << output_index[i] << " ";
         }
         file << "\n";
+        file << "number_of_layers" << "\n";
+        file << layermap.size() << "\n";
         file << "<layermap>" << "\n";
         for (int i = 0; i < layermap.size(); i++)
         {
@@ -772,6 +774,7 @@ struct relu_neural_network{
             }
             file << "---------" << "\n";
         }
+        file << "</weights>" << std::endl;
         for (int i = 0; i < relu_net.size(); i++)
         {
             file << "<neuron>" << "\n";
@@ -812,6 +815,131 @@ struct relu_neural_network{
         std::vector<int> input_in;
         std::ifstream file(file_name);
         if (file.good()){;}else{std::cout<<"ERROR "<<file_name<<" does not exist"<<std::endl; std::exit(EXIT_FAILURE);}
+        file >> str_data;
+        file >> str_data;
+        relu_net.resize(std::stoi(str_data),relu_neuron());
+        weights.resize(std::stoi(str_data));
+        file >> str_data;
+        while (true)
+        {
+            std::string data;
+            file >> data;
+            if(data == "output_index"){
+                break;
+            }
+            input_index.emplace_back(std::stoi(data));
+        }
+        while (true)
+        {
+            std::string data;
+            file >> data;
+            if(data == "number_of_layers"){
+                break;
+            }
+            output_index.emplace_back(std::stoi(data));
+        }
+        file >> str_data;
+        layermap.resize(std::stoi(str_data),{});
+        file >> str_data;
+        int itr = 0;
+        while(true){
+            std::string data;
+            file >> data;
+            if (data == "</layermap>")
+            {
+                break;
+            }
+            else if (data == "no_of_neurons")
+            {
+                file >> data;
+                layermap[itr].reserve(std::stoi(data));
+            }
+            else if(data == "next_layer")
+            {
+                itr++;
+            }
+            else{
+                layermap[itr].emplace_back(std::stoi(data));
+            }
+        }
+        file >> str_data;
+        itr = 0;
+        std::cout<<str_data<<std::endl;
+        while (true)
+        {
+            std::string data;
+            file >> data;
+            if (data == "</weights>")
+            {
+                break;
+            }
+            else if (data == "no_of_weights")
+            {
+                file >> data;
+                weights[itr].reserve(std::stoi(data));
+            }
+            else if(data == "---------")
+            {
+                itr++;
+            }
+            else{
+                int index = std::stoi(data);
+                file >> data;
+                float value= std::stof(data);
+                weights[itr].emplace_back(index_value_pair(index,value));
+            }
+        }
+        itr = 0;
+        while (true)
+        {
+            std::string data;
+            file >> data;
+            if (data == "<neuron>")
+            {
+                continue;
+            }else if (data == "<bias>")
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    file >> data;
+                    float b = std::stof(data);
+                    relu_net[itr].bias[i] = b;
+                }
+                file >> data;
+            }else if (data == "<alpha>")
+            {
+                for (int i = 0; i < 16; i++)
+                {
+                    file >> data;
+                    float al = std::stof(data);
+                    relu_net[itr].alpha[i] = al;
+                }
+                file >> data;
+            }else if (data == "<nweights>")
+            {
+                for(int i = 0; i < 9; i++){
+                    for (int j = 0; j < 7; j++)
+                    {
+                        file >> data;
+                        float we = std::stof(data);
+                        relu_net[itr].weights[i][j] = we;
+                    }
+                }
+            file >> data;
+            }
+            else if (data == "<end>")
+            {
+                break;
+            }
+            else{
+                itr++;
+            }
+        }
+        file.close();
+        for (int i = 0; i < input_index.size(); i++)
+        {
+            relu_net[input_index[i]].isinput = true;
+        }
         
     }
 };
