@@ -138,7 +138,7 @@ inline float soft_max_batch(relu_neural_network &model, dataset &data, relu_neur
         model.sbackpropagation(dloss,pre,post,current);
         //current.valclear();
     }
-    momentum.sgd_with_momentum(model,0.00000001,0.96,current);
+    //momentum.sgd_with_momentum(model,0.00000001,0.96,current); for stochasitic gradient descent move into loop and uncomment valclear function
     return cu_loss/data_indice.size();
 }
 
