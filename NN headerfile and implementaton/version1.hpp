@@ -418,7 +418,7 @@ inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std
     gradients.alpha[0] += n.units[0] * pacts[0];
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
     gradients.bias[0] += n.units[0];
-    return sign_of(n.units[0]);
+    return ((n_units[0] > 1) ? sign_of(n.units[0]):n_units[0]);
 } 
 
 
@@ -448,7 +448,7 @@ inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std
 
 // backprop but we aren't interested in gradients for the neuron and only the gradient passed out
 template <typename neuron>
-inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts){   
+inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts,bool &){   
     dldz = dldz * (1 + (n.alpha[15] * dact_func(pacts[15],n)));
     memset(n.units,0,8*sizeof(float));
     #pragma omp simd collapse(2)
@@ -467,7 +467,7 @@ inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std
         n.units[0] += n.units[i] * n.weights[0][i-1];
     }
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
-    return sign_of(n.units[0]);
+    return ((n_units[0] > 1) ? sign_of(n.units[0]):n_units[0]);
 }
 
 
