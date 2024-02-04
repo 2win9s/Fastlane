@@ -37,5 +37,4 @@ hive-mind
 
 Classification task (binary classifciation, proof of concept)
 
-backpropagation through time
-
+backpropagation through time demo
