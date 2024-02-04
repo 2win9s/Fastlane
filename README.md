@@ -30,3 +30,12 @@ The folder "Classification task (binary classification, proof of concept)" demon
 Since I'm not sure python ml libraries offer exactly what I needed and also considering just how slow python is (any performance intensive computation in pure python is a nightmare), this entire project is in C++. The artificial neural networks are implemented from scratch (but of course I use the c++ standard library and openmp, no boost though).
 New implementation in progress
 
+Progression steps are recorded as different folders in this repository
+in order:
+
+hivemind
+
+Binary Classfication
+
+backpropagation through time
+
