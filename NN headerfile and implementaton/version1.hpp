@@ -180,6 +180,27 @@ struct neuron_gradients
         }
         
     }
+    inline void add(neuron_gradients & grad){
+        #pragma omp simd
+        for (int i = 0; i < 16; i++)
+        {
+            bias[i] += grad.bias[i];
+        }
+        #pragma omp simd
+        for (int i = 0; i < 16; i++)
+        {
+            alpha[i] += grad.alpha[i];
+        }
+        for (int i = 0; i < 9; i++)
+        {
+            for (int j = 0; j < 7; j++)
+            {
+                weights[i][j] += grad.weights[i][j];
+            }
+            
+        }
+        
+    }
 };
 
 
@@ -418,7 +439,7 @@ inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std
     gradients.alpha[0] += n.units[0] * pacts[0];
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
     gradients.bias[0] += n.units[0];
-    return ((n_units[0] > 1) ? sign_of(n.units[0]):n_units[0]);
+    return ((n.units[0] > 1) ? sign_of(n.units[0]):n.units[0]);
 } 
 
 
@@ -467,7 +488,7 @@ inline float backprop(neuron &n,float dldz, std::array<float,16> &past_unit, std
         n.units[0] += n.units[i] * n.weights[0][i-1];
     }
     n.units[0] *= (1 + (n.alpha[0] * dact_func(pacts[0],n)));
-    return ((n_units[0] > 1) ? sign_of(n.units[0]):n_units[0]);
+    return ((n.units[0] > 1) ? sign_of(n.units[0]):n.units[0]);
 }
 
 
@@ -516,7 +537,7 @@ struct vec_of_arr
     T & operator ()(int i, int j){
         return vec[arr_size*i + j];
     }
-    vec_of_arr(int a, int b):vec(a*b,0){arr_size = b;vec_size=a}
+    vec_of_arr(int vec_len, int arr_len):vec(vec_len*arr_len,0){arr_size = arr_len;vec_size=vec_len;}
     //appending 'array' to this vector, assumes T is POD
     void app_arr(std::vector<T> &arr){
         vec.reserve(vec.size() + arr_size);
@@ -867,10 +888,8 @@ struct relu_neural_network{
         }
     }
 
-    inline void fpass(std::vector<float> &inputs, neural_net_record &pre, neural_net_record &post, vec_of_arr<float> & states){
+    inline void fpass(std::vector<float> &inputs, neural_net_record &pre, neural_net_record &post, vec_of_arr<float> & states, int tstep){
         valclear();
-        states.vec.reserve(relu_net.size());
-        states.vec.resize(relu_net.size());
         for (int i = 0; i < input_index.size(); i++)
         {
             relu_net[input_index[i]].units[0] = inputs[i];
@@ -881,42 +900,24 @@ struct relu_neural_network{
             {   
                 for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                 {
-                    const int in_indx = weights[layermap[i][j]][l].index;
-                    const float in = (in_indx > layermap[i][j]) ? states(states.vec_size - 1,in_indx) : relu_net[in_indx].units[15];
-                    //apologies for the naming scheme
-                    relu_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].value * in;
+                    if (tstep == 0){                    
+                        const int in_indx = weights[layermap[i][j]][l].index;
+                        const float in = (in_indx > layermap[i][j]) ? 0 : relu_net[in_indx].units[15];
+                        relu_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].value * in;
+                        }
+                    else{
+                        const int in_indx = weights[layermap[i][j]][l].index;
+                        const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : relu_net[in_indx].units[15];
+                        relu_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].value * in;
+                    }
+
                 }
                 forwardpass(relu_net[layermap[i][j]],relu_net[layermap[i][j]].units[0],pre.values[layermap[i][j]]);
-                states(states.vec_size,layermap[i][j]) = relu_net[layermap[i][j]].units[15];
+                states(tstep,layermap[i][j]) = relu_net[layermap[i][j]].units[15];
             }
         }
         record(post);
-        states.vec_size += 1;
-    }
-    inline void fpass(std::vector<float> &inputs, vec_of_arr<float> & states){
-        valclear();
-        states.vec.reserve(relu_net.size());
-        states.vec.resize(relu_net.size());
-        for (int i = 0; i < input_index.size(); i++)
-        {
-            relu_net[input_index[i]].units[0] = inputs[i];
-        }
-        for (int i = 0; i < layermap.size(); i++)
-        {
-            for (int j = 0; j < layermap[i].size(); j++)
-            {   
-                for (int l = 0; l < weights[layermap[i][j]].size(); l++)
-                {
-                    const int in_indx = weights[layermap[i][j]][l].index;
-                    const float in = (in_indx > layermap[i][j]) ? states(states.vec_size - 1,in_indx) : relu_net[in_indx].units[15];
-                    //apologies for the naming scheme
-                    relu_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].value * in;
-                }
-                forwardpass(relu_net[layermap[i][j]],relu_net[layermap[i][j]].units[0]);
-                states(states.vec_size,layermap[i][j]) = relu_net[layermap[i][j]].units[15];
-            }
-        }
-        states.vec_size += 1;
+        
     }
 
     inline void sbackpropagation(std::vector<float> &dloss, neural_net_record &pre, neural_net_record &post, network_gradient &net_grad){
@@ -948,19 +949,20 @@ struct relu_neural_network{
                 gradients(i,output_index[j]) = dloss(i,j);
             }
         }
-        for (int i = dloss.arr_size - 1; i > 0; i--)
+        for (int i = dloss.vec_size - 1; i > 0; i--)
         {
             for (int j = layermap.size() - 1; j >= 0; j--)
             {
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
                     const float & n = layermap[j][k]; 
-                    float dldz = backprop(relu_net[n],gradients(i,n),post[i].values[n],pre[i].values[n],net_grad[i].net_grads[n]);
+                    bool fish = true;   //function overload tag dispatching
+                    float dldz = backprop(relu_net[n],gradients(i,n),post[i].values[n],pre[i].values[n],net_grad[i].net_grads[n],fish);
                     for (int l = 0; l < weights[n].size(); l++)
                     {
                         const int t_step = (n > weights[n][l].index) ? (i):(i-1);
                         gradients(t_step,weights[n][l].index) += dldz * weights[n][l].value;
-                        net_grad[t_step].weight_gradients[n][l] += dldz * post[i].values[weights[n][l].index][15];
+                        net_grad[t_step].weight_gradients[n][l] += dldz * post[i].values[weights[n][l].index][15]; 
                     }
                     
                 }
@@ -973,7 +975,8 @@ struct relu_neural_network{
             for (int k = 0; k < layermap[j].size(); k++)
             {
                 const float & n = layermap[j][k]; 
-                float dldz = backprop(relu_net[n],gradients(0,n),post[0].values[n],pre[0].values[n],net_grad[0].net_grads[n]);
+                bool fish = true;
+                float dldz = backprop(relu_net[n],gradients(0,n),post[0].values[n],pre[0].values[n],net_grad[0].net_grads[n], fish);
                 for (int l = 0; l < weights[n].size(); l++)
                 {
                     if (weights[n][l].index > n)
