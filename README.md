@@ -33,7 +33,7 @@ New implementation in progress
 Progression of ideas and implementation recorded in different folders in this repository
 in order:
 
-hivemind
+hive-mind
 
 Classfication task
 
