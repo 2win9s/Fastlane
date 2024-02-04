@@ -28,5 +28,5 @@ An obvious issue is neurons are not fixed to a certain layer, can end up in diff
 The folder "Classification task (binary classification, proof of concept)" demonstrates that should a neural network can be trained at least in the simple non recurrent case, that is to be implemented.
 
 Since I'm not sure python ml libraries offer exactly what I needed and also considering just how slow python is (any performance intensive computation in pure python is a nightmare), this entire project is in C++. The artificial neural networks are implemented from scratch (but of course I use the c++ standard library and openmp, no boost though).
-Will the complete rewrite soon(in the "hive-mind" folder), current code is not conducive of utilising the advantage of cache locality and simd instructions.
+New implementation in progress
 
