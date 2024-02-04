@@ -35,7 +35,7 @@ in order:
 
 hive-mind
 
-Classfication task
+Classification task (binary classifciation, proof of concept)
 
 backpropagation through time
 
