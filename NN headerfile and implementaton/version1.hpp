@@ -955,7 +955,7 @@ struct relu_neural_network{
             {
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
-                    const float & n = layermap[j][k]; 
+                    const int & n = layermap[j][k]; 
                     bool fish = true;   //function overload tag dispatching
                     float dldz = backprop(relu_net[n],gradients(i,n),post[i].values[n],pre[i].values[n],net_grad[i].net_grads[n],fish);
                     for (int l = 0; l < weights[n].size(); l++)
@@ -974,7 +974,7 @@ struct relu_neural_network{
         {
             for (int k = 0; k < layermap[j].size(); k++)
             {
-                const float & n = layermap[j][k]; 
+                const int & n = layermap[j][k]; 
                 bool fish = true;
                 float dldz = backprop(relu_net[n],gradients(0,n),post[0].values[n],pre[0].values[n],net_grad[0].net_grads[n], fish);
                 for (int l = 0; l < weights[n].size(); l++)
