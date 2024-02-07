@@ -40,6 +40,30 @@ inline float sign_of(float x){
     return((std::signbit(x) * -2) + 1);
 }
 
+
+float quadractic_increase(float x){
+    if (std::abs(x) > 1)
+    {
+        bool sign = sign_of(x);
+        x = std::sqrt(std::abs(x)) * sign;
+        return x;
+    }
+    else{
+        return x;
+        }
+}
+
+float log_increase(float x){
+    if (std::abs(x) > 1)
+    {
+        bool sign = sign_of(x);
+        x = std::log(std::abs(x) + 1) * sign;
+        return x;
+    }
+    else{
+        return x;
+        }
+}
 //based on "A handy approximation for the error function and its inverse" by Sergei Winitzki.,
 //https://www.academia.edu/9730974/A_handy_approximation_for_the_error_function_and_its_inverse
 float approx_erfinv(float x){
@@ -627,30 +651,6 @@ struct NN
                 }
                 
             }
-        }
-
-        float quadractic_increase(float x){
-                if (std::abs(x) > 1)
-                {
-                    bool sign = sign_of(x);
-                    x = std::sqrt(std::abs(x)) * sign;
-                    return x;
-                }
-                else{
-                    return x;
-                }
-        }
-
-        float log_increase(float x){
-                if (std::abs(x) > 1)
-                {
-                    bool sign = sign_of(x);
-                    x = std::log(std::abs(x) + 1) * sign;
-                    return x;
-                }
-                else{
-                    return x;
-                }
         }
 
         inline void restrict_log(){
@@ -1425,7 +1425,6 @@ struct NN
         }
         file >> str_data;
         itr = 0;
-        std::cout<<str_data<<std::endl;
         while (true)
         {
             std::string data;
