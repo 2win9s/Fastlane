@@ -37,7 +37,7 @@ std::random_device rsksksksksks;
 std::mt19937 ttttt(rsksksksksks());
 
 inline float sign_of(float x){
-    return((std::signbit(x) * -2) + 1);
+    return((std::signbit(x) * -2.0f) + 1.0f);
 }
 
 
@@ -113,6 +113,19 @@ bool broken_float(float x){
     else{
         return false;
     }
+}
+
+/* THIS MAY NOT WORK EXPERIMENTAL, is reLU the right choice?
+, will it interfere with Re:Zero?? to be determined*/
+// t_minus_1 being post activation of previous timestep
+inline float mem_lock(float t_minus_1, float z){
+    return relu(((t_minus_1>std::abs(z)) ? t_minus_1:z));
+}
+
+// compare post activation of current and previous timestep, returns 0 if no gradient is passed,
+// 1 if gradient passes to t_minus_1 and 2 if it passes to fx, magnitude will always be 1 or 0
+inline float dmem_lock(float t_minus_1, float fx){
+    return drelu(fx)*((t_minus_1==fx)?1:2);
 }
 
 void soft_max(std::vector<float> &output){
