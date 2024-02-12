@@ -29,6 +29,7 @@
 
 const float max_val = 10000000000;
 const float n_zero = 0.0001; //try and stop things from freaking out 
+const float leak = 0.01;
 
 std::uniform_real_distribution<float> zero_to_one(0.0,1.0);
 
@@ -85,7 +86,7 @@ inline float relu(float x){
     return ((x>0.0f) ? x:0.0f);
 }
 inline float drelu(float fx){
-    return ((fx>0.0f) ? 1.0f:0.0f);
+    return (fx>0.0f);
 }
 
 // it may be useful to utilise log space 
@@ -118,14 +119,14 @@ bool broken_float(float x){
 /* THIS MAY NOT WORK EXPERIMENTAL, is reLU the right choice?
 , will it interfere with Re:Zero?? to be determined*/
 // t_minus_1 being post activation of previous timestep
-inline float mem_lock(float t_minus_1, float z){
+inline float mrelu(float t_minus_1, float z){
     return relu(((t_minus_1>std::abs(z)) ? t_minus_1:z));
 }
 
 // compare post activation of current and previous timestep, returns 0 if no gradient is passed,
 // 1 if gradient passes to t_minus_1 and 2 if it passes to fx, magnitude will always be 1 or 0
-inline float dmem_lock(float t_minus_1, float fx){
-    return drelu(fx)*((t_minus_1==fx)?1:2);
+inline int dmrelu(float t_minus_1, float fx){
+    return ((fx>0)*((t_minus_1==fx)?1:2));
 }
 
 void soft_max(std::vector<float> &output){
@@ -260,6 +261,8 @@ struct neuron_unit
     struct relu_neuron{relu_neuron(){}};            // a_f = 0
     struct sine_neuron{sine_neuron(){}};            // a_f = 1
     struct log_relu_neuron{log_relu_neuron(){}};    // a_f = 2
+    struct mrelu_neuron_MKI{};                      // a_f = -1 (input unit is mrelu, other units relu)
+    
     neuron_unit(){
         //  Xavier initialisation
         std::normal_distribution<float> a (0,0.5);            // input to 1st hidden layer
@@ -754,7 +757,6 @@ struct NN
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<std::vector<int>> layermap;
-    //std::vector<std::vector<bool>> dependency; // reduces time needed to update layermap, warning for very VERY large neural nets will eat up memory
     std::vector<int> depth;                    // for layermap purposes
 
     // sort asecending by index, should always be almost sorted at least thus use insertion sort
@@ -811,105 +813,7 @@ struct NN
         }
         layermap.shrink_to_fit();
     } 
-    // for creating/updating the layermap
-    /*
-    void layermap_sync()
-    {
-        layermap.clear();
-        dependency.reserve(neural_net.size());
-        dependency.resize(neural_net.size());
-        //std::vector<bool> index_label(neural_net.size(),true);          
-        //this is to help label the neurons (not included yet in layermap = true)
-        bool* index_label = new bool[neural_net.size()]; 
-        std::vector<std::vector<int>> input_tree(neural_net.size());
-        for (int i = 0; i < neural_net.size(); i++)
-        {
-            index_label[i] = true;
-        }
-        for (int i = 0; i < dependency.size(); i++)
-        {
-            dependency[i].resize(neural_net.size(),false);
-            std::fill(dependency[i].begin(),dependency[i].end(),false);
-            for (int j = 0; j < weights[i].size(); j++)
-            {
-                if (weights[i][j].x > i)
-                {
-                    continue;
-                }
-                dependency[i][weights[i][j]. x] = true;  //set union may be faster test for use case
-            }
-        }
-        std::vector<int> layermap_layer_candidate;
-        int initial_neuron = 0;                                         //the neuron to be included into layermap with highest priority at beginning is at index 0, order of neuron index is order of firing
-        int mapped_n = 0;
-        while(true)                                 
-        {
-            if (neural_net.size() == 0)
-            {
-                std::cout<<"ERROR, neural net with 0 neurons"<<std::endl;
-                std::exit(EXIT_FAILURE);
-            }
-            layermap_layer_candidate.clear();
-            layermap_layer_candidate.reserve(neural_net.size() - mapped_n);
-            for (int i = initial_neuron; i < neural_net.size(); i++)
-            {   
-                if(index_label[i])
-                {
-                    bool independent = true;
-                    for (int j = initial_neuron; j < neural_net.size(); j++)
-                    {
-                        if (index_label[j])
-                        {
-                            bool tf = dependency[i][j];                    
-                            if (tf)
-                            {
-                                independent = false;
-                                break;
-                            }
-                        }
-                    }
-                    if (independent)
-                    {
-                        layermap_layer_candidate.push_back(i);
-                    }   
-                }
-            }
-            if (layermap_layer_candidate.size() == 0)
-            {
-                for (int i = 0; i < neural_net.size(); i++)
-                {
-                    if (index_label[i])
-                    {
-                        std::cout<<std::endl;
-                        std::cout<<"something went wrong in layermap function, check weights of neuron "<<i<<std::endl;
-                        std::exit(EXIT_FAILURE);
-                    }
-                }
-                
-            }
-            mapped_n += layermap_layer_candidate.size();
-            for (int i = 0; i < layermap_layer_candidate.size(); i++)
-            {
-                index_label[layermap_layer_candidate[i]] = false;
-            }
-            layermap.emplace_back(layermap_layer_candidate);            //adding a new layer
-            for (int i = initial_neuron; i < neural_net.size(); i++)
-            {
-                if(index_label[i])
-                {
-                    initial_neuron = i;
-                    break;
-                }
-                if (i == (neural_net.size() - 1))                       //if all neurons are now in layermap the function has completed
-                {
-                    delete[] index_label;
-                    return;
-                }       
-            }
-        }
-        delete[] index_label;
-    } */
-
+    
     NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd)
     :neural_net(size,neuron_unit())
     ,input_index(input_neurons)
@@ -1035,7 +939,7 @@ struct NN
             }   
         }
     }
-
+    //from now pre refers to pre Re:Zero and Post past_unit
     //zeros out values for consistency
     inline void sforwardpass(std::vector<float> &inputs, state &pre, state &post){
         for (int i = 0; i < input_index.size(); i++)
@@ -1083,7 +987,7 @@ struct NN
     }
     
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
-    inline void forward_pass(std::vector<float> &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
+    inline void forward_pass(std::vector<float> &inputs, state &pre, state &pre_t_minus1 ,state &post, vec_of_arr<float> & states, int tstep){
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1121,6 +1025,8 @@ struct NN
                             const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : neural_net[in_indx].units[15];
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
                         }
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput == -1) ?
+                        mrelu(pre_t_minus1.values[layermap[i][j]][0],neural_net[layermap[i][j]].units[0]):neural_net[layermap[i][j]].units[0];
                         neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
                     }
@@ -1130,7 +1036,7 @@ struct NN
         }
     }
 
-    inline void forward_pass(std::vector<float> &inputs, vec_of_arr<float> & states,int tstep){
+    inline void forward_pass(std::vector<float> &inputs, vec_of_arr<float> & states,int tstep,state &pre, state &pre_t_minus1){
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1149,7 +1055,7 @@ struct NN
                             const float in = (in_indx > layermap[i][j]) ? 0.0f : neural_net[in_indx].units[15];
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
                         }
-                        neural_net[layermap[i][j]].forward_pass();
+                        neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
                     }
                 }
@@ -1167,6 +1073,8 @@ struct NN
                             const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : neural_net[in_indx].units[15];
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
                         }
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput == -1) ?
+                        mrelu(pre_t_minus1.values[layermap[i][j]][0],neural_net[layermap[i][j]].units[0]):neural_net[layermap[i][j]].units[0];
                         neural_net[layermap[i][j]].forward_pass();
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
                     }
@@ -1211,6 +1119,21 @@ struct NN
                 {
                     const int & n = layermap[j][k]; 
                     float dldz = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad[i].net_grads[n]);
+                    if (neural_net[n].a_f == -1)
+                    {
+                        int a = dmrelu(pre[i-1].values[n][0],pre[i].values[n][0]);
+                        switch (a)
+                        {
+                        case 1:
+                            gradients(i-1,n) += dldz;
+                            continue;
+                            break;
+                        case 2:
+                            break;
+                        default:
+                            dldz *= leak;
+                        }
+                    }
                     for (int l = 0; l < weights[n].size(); l++)
                     {
                         const int t_step = (n > weights[n][l].x) ? (i):(i-1);
@@ -1261,6 +1184,21 @@ struct NN
                 {
                     const int & n = layermap[j][k]; 
                     float dldz = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad[i].net_grads[n]);
+                    if (neural_net[n].a_f == -1)
+                    {
+                        int a = dmrelu(pre[i-1].values[n][0],pre[i].values[n][0]);
+                        switch (a)
+                        {
+                        case 1:
+                            gradients(i-1,n) += dldz;
+                            continue;
+                            break;
+                        case 2:
+                            break;
+                        default:
+                            dldz *= leak;
+                        }
+                    }
                     for (int l = 0; l < weights[n].size(); l++)
                     {
                         const int t_step = (n > weights[n][l].x) ? (i):(i-1);
