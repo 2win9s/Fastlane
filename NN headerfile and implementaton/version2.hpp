@@ -1131,7 +1131,9 @@ struct NN
                         case 2:
                             break;
                         default:
-                            dldz *= leak;
+                            continue;
+                            // will see if it performs poorly
+                            //dldz *= (leak*(std::signbit(dldz)));
                         }
                     }
                     for (int l = 0; l < weights[n].size(); l++)
@@ -1458,6 +1460,41 @@ struct NN
             neural_net[input_index[i]].isinput = true;
         }
         
+    }
+
+    // returns true if inputs can appect every output of current timestep
+    // flase otherwise
+    bool connection_check(){
+        std::vector<int> checker(neural_net.size(),0);
+        for (int i = 0; i < input_index.size(); i++)
+        {
+            checker[input_index[i]] = 1;
+            for (int j = 0; j < layermap.size(); j++)
+            {
+                for (int k = 0; k < layermap[j].size(); k++)
+                {
+                    const int & n=layermap[i][j];
+                    for(int l = 0; l < weights[n].size(); l++){
+                        if (weights[n][l].x > n)
+                        {
+                            break;
+                        }
+                        checker[n] = (checker[n]||checker[weights[n][l].x]);
+                    }
+                }
+                for (int j = 0; j < output_index.size(); j++)
+                {
+                    if (!checker[output_index[j]])
+                    {
+                        return false;
+                    }
+                    
+                }
+                std::fill(checker.begin(),checker.end(),0);
+            }
+            
+        }
+        return true;
     }
 };
 
