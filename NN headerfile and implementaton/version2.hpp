@@ -1473,7 +1473,7 @@ struct NN
             {
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
-                    const int & n=layermap[i][j];
+                    const int & n=layermap[j][k];
                     for(int l = 0; l < weights[n].size(); l++){
                         if (weights[n][l].x > n)
                         {
