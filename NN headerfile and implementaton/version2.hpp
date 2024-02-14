@@ -256,7 +256,7 @@ struct neuron_unit
     float alpha[16] = {0};     // from Re:Zero is all you need 
     float weights[9][7];
     uint16_t isinput = 0;         
-    uint16_t a_f = 0;          //activation function defaults to ReLU
+    int16_t a_f = 0;          //activation function defaults to ReLU
     //tags for tag dispatching
     struct relu_neuron{relu_neuron(){}};            // a_f = 0
     struct sine_neuron{sine_neuron(){}};            // a_f = 1
@@ -1025,7 +1025,7 @@ struct NN
                             const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : neural_net[in_indx].units[15];
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
                         }
-                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput == -1) ?
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].a_f == -1) ?
                         mrelu(pre_t_minus1.values[layermap[i][j]][0],neural_net[layermap[i][j]].units[0]):neural_net[layermap[i][j]].units[0];
                         neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
@@ -1073,7 +1073,7 @@ struct NN
                             const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : neural_net[in_indx].units[15];
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
                         }
-                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput == -1) ?
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].a_f == -1) ?
                         mrelu(pre_t_minus1.values[layermap[i][j]][0],neural_net[layermap[i][j]].units[0]):neural_net[layermap[i][j]].units[0];
                         neural_net[layermap[i][j]].forward_pass();
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
@@ -1482,17 +1482,16 @@ struct NN
                         checker[n] = (checker[n]||checker[weights[n][l].x]);
                     }
                 }
-                for (int j = 0; j < output_index.size(); j++)
-                {
-                    if (!checker[output_index[j]])
-                    {
-                        return false;
-                    }
-                    
-                }
-                std::fill(checker.begin(),checker.end(),0);
             }
-            
+            for (int j = 0; j < output_index.size(); j++)
+            {
+                if (!checker[output_index[j]])
+                {
+                    return false;
+                }
+                
+            }
+            std::fill(checker.begin(),checker.end(),0);    
         }
         return true;
     }
