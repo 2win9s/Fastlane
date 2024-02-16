@@ -6,7 +6,7 @@ In order to avail of at least some caching and SIMD parallelisation instead of n
 
 Here we will implement the units to build up the fastlane neural networks as simple small neural networks of 1 input 2 hidden layers of 7 units each and 1 output. Thesse numbers seem arbitrary and they are but, they would results in fully connected artificial neural networks containing 111 c++ floats, with float being fp32(on most non edge device implementations) that makes it one float short of perfectly filling 7 cache lines of contingent memory, this is where the exposure to caching efficiency and SIMD parallelisation lies.(The memory usage includes the parameters necessary for implementing Re:Zero, Bachlechner et Al . link:https://arxiv.org/abs/2003.04887)
 
-Then we can treat these artificial neural networks as single neurons for fastlane! In fact if we reframe it, it could be akin to learning a activation function. Of course in general this is redundant, artificial neural networks can approximate virtually any function in a bounded range by the UAT, but doing this allows the fastlane architecture to ustilise compute more effectively.
+Then we can treat these artificial neural networks as single neurons for fastlane! In fact if we reframe it, it could be akin to learning a activation function. Of course in general this is redundant, artificial neural networks can approximate virtually any function in a bounded range by the UAT, but doing this allows the fastlane architecture to utilise compute more effectively.
 
 As for the implementation so far the individual component artificial neural networks have 3 activation functions programmed, ReLU, sin and "log_relu" defined as
 
