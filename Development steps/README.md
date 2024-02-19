@@ -13,3 +13,11 @@ As for the implementation so far the individual component artificial neural netw
 $f(x) = ln(ReLU(x) + 1)$
 
 Although it introduces significant computational overhead the hope is that the sine and "log_relu" functions can allow for better out of sample performance, capturing periodic properties and interactions beyond approximating at a limited range.
+
+## "Gated State"
+We can define a the equation to update hidden states as
+note these are not vectors!! scalars in order to fit the achitecture$
+$h_{t} = h_{t-1} + tanh(a(x_{t}))*\sigma(b(x_{t}))$
+
+
+
