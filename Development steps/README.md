@@ -20,7 +20,7 @@ note these are not vectors!! This is almost akin to an activation function that 
 
 $h_{t} = h_{t-1} + tanh(a(x_{t}))*\sigma(b(x_{t}))$
 
-This is inspired by LSTM (the gating) and the Selective State Space Models of the MAMBA architecture (only modify depending on input)
+This is inspired by LSTM (the gating) and the Selective State Space Models of the MAMBA architecture (only modify state depending on input)
 
 
 
