@@ -16,8 +16,11 @@ Although it introduces significant computational overhead the hope is that the s
 
 ## "Gated State"
 We can define a the equation to update hidden states as
-note these are not vectors!! scalars in order to fit the achitecture$
+note these are not vectors!! This is almost akin to an activation function that takes in the previous hidden state
+
 $h_{t} = h_{t-1} + tanh(a(x_{t}))*\sigma(b(x_{t}))$
+
+This is inspired by LSTM (the gating) and the Selective State Space Models of the MAMBA architecture (only modify depending on input)
 
 
 
