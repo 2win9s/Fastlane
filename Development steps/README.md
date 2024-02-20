@@ -23,6 +23,6 @@ $h_{t} = h_{t-1} + tanh(a(x_{t}))*\sigma(b(x_{t}))$
 This is inspired by LSTM (the gating) and the Selective State Space Models of the MAMBA architecture (only modify state depending on input).
 
 This is necessary as to combat the vanishing gradient problem
-
+To keep this recurrence under control a function such as $a(tanh(x/a)$ can be used to bound it at every timestep.
 
 
