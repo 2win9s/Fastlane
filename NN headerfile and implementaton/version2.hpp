@@ -911,7 +911,7 @@ struct NN
         std::fill(depth.begin(),depth.end(),0);
         layermap.reserve(neural_net.size());
         layermap.resize(1,{});
-        layermap[1].reserve(input_index.size());
+        layermap[0].reserve(input_index.size());
         for (int i = 0; i < input_index.size(); i++)
         {
             layermap[0].emplace_back(input_index[i]);
