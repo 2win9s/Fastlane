@@ -14,7 +14,7 @@
 #include<array>
 #include"version3.hpp"
 #include<sstream>
-
+#include<deque>
 
 #include<windows.h>
 
@@ -28,6 +28,9 @@ std::vector<std::string> labels(60000);
 std::uniform_int_distribution<int> randtrain(0,39999);   //the first 40thousand data points will be training data
 std::uniform_int_distribution<int> randval(40000,50000); //this is the validation data
 
+std::vector<std::vector<std::array<float,380>>> encoded_input(60000);
+std::vector<std::vector<float>> encoded_target(60000,{0,0,0});
+std::array<float,380> blank_input = {0};
 const int thinktime=10;
 
 void load_data(){
@@ -45,6 +48,80 @@ void load_data(){
     label.close();
 }
 
+uint8_t input_convert(std::string s){
+    for (uint8_t i = 0; i < characters.size(); i++)
+    {
+        if (s == characters[i])
+        {
+            return i;
+        }    
+    }
+    return 0;   //default to whitespace if it isn't printable ascii    
+}
+
+void encode(){
+    for (int i = 0; i < 60000; i++)
+    {
+        if (labels[i] == "Positive")
+        {
+            encoded_target[i][0] = 1;
+            encoded_target[i][1] = 0;
+            encoded_target[i][2] = 0;
+        }
+        else if (labels[i] == "Negative")
+        {
+            encoded_target[i][0] = 0;
+            encoded_target[i][1] = 1;
+            encoded_target[i][2] = 0;
+        }
+        else if (labels[i] == "Neutral")
+        {
+            encoded_target[i][0] = 0;
+            encoded_target[i][1] = 0;
+            encoded_target[i][2] = 1;
+        }
+        else{
+            std::cout<<"ERROR!!!!!!, label"<<std::endl;
+            std::cout<<labels[i]<<std::endl;
+            std::exit(EXIT_FAILURE);        
+        }    
+    }
+    for (int i = 0; i < 60000; i++)
+    {
+        int len;
+        if ((data_points[i].length()  % 4) == 0)
+        {
+            len = std::floor(data_points[i].length() / 4);
+        }
+        else{
+            len = std::floor(data_points[i].length() / 4) + 1;
+        }
+        encoded_input[i].reserve(len);
+        #pragma omp simd collapse(2)
+        for (int j = 0; j < len; j++)
+        {
+            for (int k = 0; k < 380; k++)
+            {
+                encoded_input[i][j][k] = 0;
+            }
+        }
+        int msgind = 0;
+        for (int j = 0; j < data_points[i].length(); j+=4)
+        {
+            //just tiling the loop, we read 4 characters at a time
+            #pragma omp simd
+            for (int k = j; k < (((j + 4) < data_points[i].length()) ? (j + 4):data_points[i].length()); k++)
+            {
+                std::string chra = "";
+                chra += data_points[i][k];
+                encoded_input[i][msgind][input_convert(chra) + ((k%4)*95)] = 1;
+            }
+            msgind ++;
+        }
+    }
+    
+}
+
 void shuffle_tr_data(){
     std::uniform_int_distribution<int> rint(0,39998);
     std::random_device rd;                          
@@ -58,67 +135,13 @@ void shuffle_tr_data(){
 }
 
 
-uint8_t input_convert(std::string s){
-    for (uint8_t i = 0; i < characters.size(); i++)
-    {
-        if (s == characters[i])
-        {
-            return i;
-        }    
-    }
-    return 0;   //default to whitespace if it isn't printable ascii    
-}
-
-
 int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &helper){
-    int len;
     int acc=0; 
-    if ((data_points[textindex].length()  % 4) == 0)
-    {
-        len = std::floor(data_points[textindex].length() / 4);
-    }
-    else{
-        len = std::floor(data_points[textindex].length() / 4) + 1;
-    }
-    std::vector<float> inputs(380,0);
-    std::vector<float> target(3,0);
-    helper.resize(len+thinktime);
-    if (labels[textindex] == "Positive")
-    {
-        target[0] = 1;
-        target[1] = 0;
-        target[2] = 0; 
-    }
-    else if (labels[textindex] == "Negative")
-    {
-        target[0] = 0;
-        target[1] = 1;
-        target[2] = 0; 
-    }
-    else if (labels[textindex] == "Neutral")
-    {
-        target[0] = 0;
-        target[1] = 0;
-        target[2] = 1; 
-    }
-    else{
-        std::cout<<"ERROR!!!!!!, label"<<std::endl;
-        std::cout<<labels[textindex]<<std::endl;
-        std::exit(EXIT_FAILURE);        
-    }    
+    helper.resize(encoded_input[textindex].size()+thinktime);   
     int fpasscount = 0;
-    for (int i = 0; i < data_points[textindex].length(); i+=4)
+    for (int i = 0; i < encoded_input[textindex].size(); i++)
     {
-        std::fill(inputs.begin(),inputs.end(),0);   
-        //just tiling the loop, we read 4 characters at a time
-        #pragma omp simd
-        for (int j = i; j < (((i + 4) < data_points[textindex].length()) ? (i + 4):data_points[textindex].length()); j++)
-        {
-            std::string chra = "";
-            chra += data_points[textindex][j];
-            inputs[input_convert(chra) + ((j%4)*95)] = 1;
-        }
-        hopeless.forward_pass(model,inputs,helper.states,fpasscount,helper.pre[fpasscount]);
+        hopeless.forward_pass(model,encoded_input[textindex][i],helper.states,fpasscount,helper.pre[fpasscount]);
         fpasscount++;   
     }
     while(true)
@@ -127,8 +150,7 @@ int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &he
         std::vector<float> losso(3);
         std::vector<float> lossb(2);
         std::vector<float> buzzer(2);
-        std::fill(inputs.begin(),inputs.end(),0);
-        hopeless.forward_pass(model,inputs,helper.states,fpasscount,helper.pre[fpasscount]);
+        hopeless.forward_pass(model,blank_input,helper.states,fpasscount,helper.pre[fpasscount]);
         for(int j = 0; j < output.size(); j++){
             output[j] = hopeless.neural_net[model.output_index[j]].units[15];
         }
@@ -140,11 +162,11 @@ int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &he
         soft_max(buzzer);
         if ((buzzer[0]>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
         {
-            if (target[prediction(output)]==1)
+            if (encoded_target[textindex][prediction(output)]==1)
             {
                 acc=1;
             }   
-            dsoft_max(output,target,losso);
+            dsoft_max(output,encoded_target[textindex],losso);
             break;
         }
         fpasscount++;
@@ -167,61 +189,19 @@ void sample_acc(NN::npNN &hopeless, NN::training_essentials &helper){
     std::cout<<"accuracy on validation set is:"<<acc<<std::endl;
 }
 
-
 float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &helper){
     int len;
     float loss; 
-    if ((data_points[textindex].length()  % 4) == 0)
-    {
-        len = std::floor(data_points[textindex].length() / 4);
-    }
-    else{
-        len = std::floor(data_points[textindex].length() / 4) + 1;
-    }
-    std::vector<float> inputs(380,0);
-    std::vector<float> target(3,0);
-    helper.resize(len+thinktime);
-    if (labels[textindex] == "Positive")
-    {
-        target[0] = 1;
-        target[1] = 0;
-        target[2] = 0; 
-    }
-    else if (labels[textindex] == "Negative")
-    {
-        target[0] = 0;
-        target[1] = 1;
-        target[2] = 0; 
-    }
-    else if (labels[textindex] == "Neutral")
-    {
-        target[0] = 0;
-        target[1] = 0;
-        target[2] = 1; 
-    }
-    else{
-        std::cout<<"ERROR!!!!!!, label"<<std::endl;
-        std::cout<<labels[textindex]<<std::endl;
-        std::exit(EXIT_FAILURE);        
-    }    
+    helper.resize(encoded_input[textindex].size()+thinktime);   
     int fpasscount = 0;
+    for (int i = 0; i < encoded_input[textindex].size(); i++)
+    {
+        hopeless.forward_pass(model,encoded_input[textindex][i],helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
+        fpasscount++;   
+    }
     for (int i = 0; i < helper.dloss.vec_size; i++)
     {
         helper.dloss(i,0) = 0;
-    }
-    for (int i = 0; i < data_points[textindex].length(); i+=4)
-    {
-        std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
-        //just tiling the loop, we read 4 characters at a time
-        #pragma omp simd
-        for (int j = i; j < (((i + 4) < data_points[textindex].length()) ? (i + 4):data_points[textindex].length()); j++)
-        {
-            std::string chra = "";
-            chra += data_points[textindex][j];
-            inputs[input_convert(chra) + ((j%4)*95)] = 1;
-        }
-        hopeless.forward_pass(model,inputs,helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
-        fpasscount++;   
     }
     while(true)
     {
@@ -229,8 +209,7 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
         std::vector<float> losso(3);
         std::vector<float> lossb(2);
         std::vector<float> buzzer(2);
-        std::fill(inputs.begin(),inputs.end(),0);
-        hopeless.forward_pass(model,inputs,helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
+        hopeless.forward_pass(model,blank_input,helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
         for(int j = 0; j < output.size(); j++){
             output[j] = hopeless.neural_net[model.output_index[j]].units[15];
         }
@@ -249,7 +228,7 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
             {
                 helper.dloss(fpasscount,3+j)=lossb[j] * 0.04;
             }
-            dsoft_max(output,target,losso);
+            dsoft_max(output,encoded_target[textindex],losso);
             for (int j = 0; j < 3; j++)
             {
                 helper.dloss(fpasscount,j)=losso[j] * 0.04;
@@ -257,8 +236,8 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
         }
         if ((buzzer[0]>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
         {
-            loss = cross_entrophy_loss(target,output);
-            dsoft_max(output,target,losso);
+            loss = cross_entrophy_loss(encoded_target[textindex],output);
+            dsoft_max(output,encoded_target[textindex],losso);
             for (int j = 0; j < 3; j++)
             {
                 helper.dloss(fpasscount,j)=losso[j];
@@ -281,6 +260,7 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
 
 int main(){
     load_data(); 
+    encode();
     u_int batch_size = 32;
     u_int threads = 16;
     NN::npNN ns(model);
