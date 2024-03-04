@@ -199,6 +199,7 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
         hopeless.forward_pass(model,encoded_input[textindex][i],helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
         fpasscount++;   
     }
+    #pragma omp simd
     for (int i = 0; i < helper.dloss.vec_size; i++)
     {
         helper.dloss(i,0) = 0;
@@ -291,30 +292,35 @@ int main(){
         std::cout<<"Progress for this epoch..."<<std::flush;
         t_set_itr = 0;
         epochloss = 0;
-        for (int i = 0; i < cum_loss.size(); i++)
-        {
-            cum_loss[i]=0;
-        }
         while(t_set_itr < 40000)
         {       
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < batch_size; i++)
+            #pragma omp parallel
             {
+                float cumloss=0;
                 int t_num = omp_get_thread_num();
-                int msg = t_set_itr + i;
-                if (data_points[msg].size() == 0)
+                #pragma omp for schedule(static)
+                for (int i = 0; i < batch_size; i++)
                 {
-                    continue;
+                    int msg = t_set_itr + i;
+                    if (data_points[msg].size() == 0)
+                    {
+                        continue;
+                    }
+                    cumloss+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
                 }
-                cum_loss[t_num]+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
+                #pragma omp critical
+                {
+                    cum_loss[t_num] = cumloss;
+                }
             }
+
             for (int i = 1; i < hopeless.size(); i++)
             {
                 gradientsandmore[0].f.condense(gradientsandmore[i].f);
             }
             gradientsandmore[0].f.norm_clip(1);
             past_grad.sgd_with_momentum(model,l_r,0.95,gradientsandmore[0].f);
-            if((t_set_itr % (batch_size*10))==0){
+            if((t_set_itr % (batch_size*20))==0){
                 std::cout<<"\r                                                           ";
                 std::cout<<"\rProgress for this epoch...";
                 float progresspercent =100 * t_set_itr/40000;  
@@ -331,6 +337,7 @@ int main(){
         std::cout<<std::endl;
         std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
         std::cout<<std::flush;
+        #pragma omp simd
         for (int i = 0; i < cum_loss.size(); i++)
         {
             epochloss += cum_loss[i];
