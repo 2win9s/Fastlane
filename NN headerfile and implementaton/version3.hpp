@@ -1155,6 +1155,7 @@ struct NN
             #pragma omp for
             for (int i = 0; i < weight_gradients.size(); i++)
             {
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] = quadractic_increase(weight_gradients[i][j]);
@@ -1179,6 +1180,7 @@ struct NN
                 {
                     net_grads[i].alpha[j] = clip(net_grads[i].alpha[j],max);
                 }
+                #pragma omp simd collapse(2)
                 for (int j = 0; j < 9; j++)
                 {
                     for (int k = 0; k < 7; k++)
@@ -1190,6 +1192,7 @@ struct NN
             #pragma omp for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] = clip(weight_gradients[i][j],max);
@@ -1212,9 +1215,9 @@ struct NN
                 {
                     gradient_l2_norm+= net_grads[i].alpha[j] * net_grads[i].alpha[j];
                 }
+                #pragma omp simd collapse(2)
                 for (int j = 0; j < 9; j++)
                 {
-                    #pragma omp simd
                     for (int k = 0; k < 7; k++)
                     {
                         gradient_l2_norm+=net_grads[i].weights[j][k]*net_grads[i].weights[j][k];
@@ -1224,6 +1227,7 @@ struct NN
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     gradient_l2_norm+=weight_gradients[i][j]*weight_gradients[i][j];
@@ -1248,6 +1252,7 @@ struct NN
                 {
                     net_grads[i].alpha[j] *= gradient_l2_norm;
                 }
+                #pragma omp simd collapse(2)
                 for (int j = 0; j < 9; j++)
                 {
                     for (int k = 0; k < 7; k++)
@@ -1259,6 +1264,7 @@ struct NN
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] *= gradient_l2_norm;
@@ -1276,6 +1282,7 @@ struct NN
                 #pragma omp for schedule(static)
                 for (int j = 0; j < multi_grad[i].weight_gradients.size(); j++)
                 {
+                    #pragma omp simd
                     for (int k = 0; k < multi_grad[i].weight_gradients[j].size(); k++)
                     {
                         weight_gradients[j][k] += multi_grad[i].weight_gradients[j][k];
@@ -1440,16 +1447,16 @@ struct NN
             }
             
             //Xavier initialisation
-            std::uniform_real_distribution<float> weight_init_dist(-std::sqrt(1/(input_layer_size - recurrent_connections)),std::sqrt(1/(input_layer_size-recurrent_connections)));
+            std::uniform_real_distribution<float> weight_init_dist(-std::sqrt(1/(input_layer_size)),std::sqrt(1/(input_layer_size)));
             for(int j = 0; j < input_layer_size; j++)
             {
-                if (weights[i][j].x > i)
-                {
-                    weights[i][j].y = 0; /*this seems to stop gradient explosion*/
-                }
-                else{
+                //if (weights[i][j].x > i)
+                //{
+                    //weights[i][j].y = 0; /*this seems to stop gradient explosion*/
+                //}
+                //else{
                     weights[i][j].y = weight_init_dist(ttttt) /*multiplier to tune? prevent gradient exploding*/;
-                }
+                //}
             } 
         }
     }
@@ -1492,7 +1499,9 @@ struct NN
     }
     //from now pre refers to pre Re:Zero and Post past_unit
     //zeros out values for consistency
-    inline void sforwardpass(std::vector<float> &inputs, state &pre, state &post){
+    template<typename T>
+    inline void sforwardpass(T &inputs, state &pre, state &post){
+        #pragma omp simd
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1502,6 +1511,7 @@ struct NN
             for (int j = 0; j < layermap[i].size(); j++)
             {   
                 neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                #pragma omp simd
                 for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                 {
                     const int in_indx = weights[layermap[i][j]][l].x;
@@ -1516,6 +1526,7 @@ struct NN
     }
 
     inline void sforwardpass(std::vector<float> &inputs){
+        #pragma omp simd
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1525,6 +1536,7 @@ struct NN
             for (int j = 0; j < layermap[i].size(); j++)
             {   
                 neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                #pragma omp simd
                 for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                 {
                     const int in_indx = weights[layermap[i][j]][l].x;
@@ -1538,7 +1550,9 @@ struct NN
     }
     
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
-    inline void forward_pass(std::vector<float> &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
+    template<typename T>
+    inline void forward_pass(T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
+        #pragma omp simd
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1551,6 +1565,7 @@ struct NN
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        #pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {               
                             const int in_indx = weights[layermap[i][j]][l].x;
@@ -1570,6 +1585,7 @@ struct NN
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        #pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {
                             const int in_indx = weights[layermap[i][j]][l].x;
@@ -1585,7 +1601,9 @@ struct NN
         }
     }
 
-    inline void forward_pass(std::vector<float> &inputs, vec_of_arr<float> & states,int tstep,state &pre){
+    template<typename T>
+    inline void forward_pass(T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
+        #pragma omp simd
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -1598,6 +1616,7 @@ struct NN
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        #pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {               
                             const int in_indx = weights[layermap[i][j]][l].x;
@@ -1616,6 +1635,7 @@ struct NN
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        #pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {
                             const int in_indx = weights[layermap[i][j]][l].x;
@@ -1666,6 +1686,7 @@ struct NN
                 float nothing = 0;
                 float dldz = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                 dldz = log_increase(dldz);
+                #pragma omp simd
                 for (int l = 0; l < weights[n].size(); l++)
                 {
                     if (weights[n][l].x > n)
@@ -2003,9 +2024,11 @@ struct NN
                     post.values[i][j] = neural_net[i].units[j];
                 }   
             }
-    }
-
-        inline void sforwardpass(NN & nn,std::vector<float> &inputs, state &pre, state &post){
+        }
+ 
+        template<typename T>
+        inline void sforwardpass(NN & nn,T &inputs, state &pre, state &post){
+            #pragma omp simd
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2015,6 +2038,7 @@ struct NN
                 for (int j = 0; j < nn.layermap[i].size(); j++)
                 {   
                     neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                    #pragma omp simd
                     for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                     {
                         const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2027,8 +2051,9 @@ struct NN
             }
             record_state(post);
         }
-
-        inline void sforwardpass(NN & nn,std::vector<float> &inputs){
+        template<typename T>
+        inline void sforwardpass(NN & nn,T &inputs){
+            #pragma omp simd
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2038,6 +2063,7 @@ struct NN
                 for (int j = 0; j < nn.layermap[i].size(); j++)
                 {   
                     neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                    #pragma omp simd
                     for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                     {
                         const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2051,7 +2077,9 @@ struct NN
         }
         
         // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
-        inline void forward_pass(NN & nn,std::vector<float> &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
+        template<typename T>
+        inline void forward_pass(NN & nn,T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
+            #pragma omp simd
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2064,6 +2092,7 @@ struct NN
                         for (int j = 0; j < nn.layermap[i].size(); j++)
                         {   
                             neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                            #pragma omp simd
                             for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                             {               
                                 const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2083,6 +2112,7 @@ struct NN
                         for (int j = 0; j < nn.layermap[i].size(); j++)
                         {   
                             neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                            #pragma omp simd
                             for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                             {
                                 const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2097,8 +2127,9 @@ struct NN
                     return;
             }
         }
-
-        inline void forward_pass(NN &nn,std::vector<float> &inputs, vec_of_arr<float> & states,int tstep,state &pre){
+        template<typename T>
+        inline void forward_pass(NN &nn,T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
+            #pragma omp simd
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2111,6 +2142,7 @@ struct NN
                         for (int j = 0; j < nn.layermap[i].size(); j++)
                         {   
                             neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                            #pragma omp simd
                             for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                             {               
                                 const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2129,6 +2161,7 @@ struct NN
                         for (int j = 0; j < nn.layermap[i].size(); j++)
                         {   
                             neural_net[nn.layermap[i][j]].units[0] *= nn.neural_net[nn.layermap[i][j]].isinput;
+                            #pragma omp simd    
                             for (int l = 0; l < nn.weights[nn.layermap[i][j]].size(); l++)
                             {
                                 const int in_indx = nn.weights[nn.layermap[i][j]][l].x;
@@ -2146,6 +2179,7 @@ struct NN
         //back propagation through time, passing arguement gradients to avoid memorry allocation
         inline void bptt(NN &nn,vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
             std::fill(gradients.vec.begin(),gradients.vec.end(),0);
+            #pragma omp simd collapse(2)
             for (int i = 0; i < dloss.vec_size; i++)
             {
                 for (int j = 0; j < dloss.arr_size; j++)
@@ -2181,6 +2215,7 @@ struct NN
                     float nothing = 0;
                     float dldz = neural_net[n].backpropagation(nn.neural_net[n],gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                     dldz = log_increase(dldz);
+                    #pragma omp simd
                     for (int l = 0; l < nn.weights[n].size(); l++)
                     {
                         if (nn.weights[n][l].x > n)
