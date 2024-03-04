@@ -1,0 +1,393 @@
+// setup 380(10 characters at a time) input units and 5(3 t decide sentiment, 2 to decide to stop) output units
+#include<vector>
+#include<cmath>
+#include<iostream>
+#include<cstdlib>
+#include<string>
+#include<random>
+#include<fstream>
+#include<limits>
+#include<iomanip>
+#include<algorithm>
+#include<filesystem>
+#include<omp.h>
+#include<array>
+#include"version3.hpp"
+#include<sstream>
+
+
+#include<windows.h>
+
+
+NN model("model.txt");
+std::vector<std::string> characters = {" ","!","\"","#","$","%","&","'","(",")","*","+",",","-",".","/","0","1","2","3","4","5","6","7","8","9",":",";","<","=",">","?","@","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","[","\\","]","^","_","`","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","y","z","{","|","}","~"};
+
+std::vector<std::string> data_points(60000);
+std::vector<std::string> labels(60000);
+
+std::uniform_int_distribution<int> randtrain(0,39999);   //the first 40thousand data points will be training data
+std::uniform_int_distribution<int> randval(40000,50000); //this is the validation data
+
+const int thinktime=10;
+
+void load_data(){
+    std::ifstream data("text.txt");
+    std::ifstream label("label.txt");
+    for (int i = 0; i < 60000; i++)
+    {
+        std::getline(data,data_points[i]);
+    }
+    data.close();
+    for (int i = 0; i < 60000; i++)
+    {
+        std::getline(label,labels[i]);
+    }
+    label.close();
+}
+
+void shuffle_tr_data(){
+    std::uniform_int_distribution<int> rint(0,39998);
+    std::random_device rd;                          
+    std::mt19937 mtwister(rd());
+    for(int i = 0; i < 40000; i++){
+        int swappos = rint(mtwister);
+        swappos = (swappos >= i) ? swappos+1:swappos;
+        std::swap(data_points[i],data_points[swappos]);
+        std::swap(labels[i],labels[swappos]);
+    }
+}
+
+
+uint8_t input_convert(std::string s){
+    for (uint8_t i = 0; i < characters.size(); i++)
+    {
+        if (s == characters[i])
+        {
+            return i;
+        }    
+    }
+    return 0;   //default to whitespace if it isn't printable ascii    
+}
+
+
+int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &helper){
+    int len;
+    int acc=0; 
+    if ((data_points[textindex].length()  % 4) == 0)
+    {
+        len = std::floor(data_points[textindex].length() / 4);
+    }
+    else{
+        len = std::floor(data_points[textindex].length() / 4) + 1;
+    }
+    std::vector<float> inputs(380,0);
+    std::vector<float> target(3,0);
+    helper.resize(len+thinktime);
+    if (labels[textindex] == "Positive")
+    {
+        target[0] = 1;
+        target[1] = 0;
+        target[2] = 0; 
+    }
+    else if (labels[textindex] == "Negative")
+    {
+        target[0] = 0;
+        target[1] = 1;
+        target[2] = 0; 
+    }
+    else if (labels[textindex] == "Neutral")
+    {
+        target[0] = 0;
+        target[1] = 0;
+        target[2] = 1; 
+    }
+    else{
+        std::cout<<"ERROR!!!!!!, label"<<std::endl;
+        std::cout<<labels[textindex]<<std::endl;
+        std::exit(EXIT_FAILURE);        
+    }    
+    int fpasscount = 0;
+    for (int i = 0; i < data_points[textindex].length(); i+=4)
+    {
+        std::fill(inputs.begin(),inputs.end(),0);   
+        //just tiling the loop, we read 4 characters at a time
+        #pragma omp simd
+        for (int j = i; j < (((i + 4) < data_points[textindex].length()) ? (i + 4):data_points[textindex].length()); j++)
+        {
+            std::string chra = "";
+            chra += data_points[textindex][j];
+            inputs[input_convert(chra) + ((j%4)*95)] = 1;
+        }
+        hopeless.forward_pass(model,inputs,helper.states,fpasscount,helper.pre[fpasscount]);
+        fpasscount++;   
+    }
+    while(true)
+    {
+        std::vector<float> output(3);
+        std::vector<float> losso(3);
+        std::vector<float> lossb(2);
+        std::vector<float> buzzer(2);
+        std::fill(inputs.begin(),inputs.end(),0);
+        hopeless.forward_pass(model,inputs,helper.states,fpasscount,helper.pre[fpasscount]);
+        for(int j = 0; j < output.size(); j++){
+            output[j] = hopeless.neural_net[model.output_index[j]].units[15];
+        }
+        for (int j = output.size(); j < 5; j++)
+        {
+            buzzer[j-3] = hopeless.neural_net[model.output_index[j]].units[15];
+        }
+        soft_max(output);
+        soft_max(buzzer);
+        if ((buzzer[0]>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
+        {
+            if (target[prediction(output)]==1)
+            {
+                acc=1;
+            }   
+            dsoft_max(output,target,losso);
+            break;
+        }
+        fpasscount++;
+    }
+    return acc;
+}
+
+void sample_acc(NN::npNN &hopeless, NN::training_essentials &helper){
+    float acc = 0;
+    shuffle_tr_data();
+    for (int i = 40000; i < 50000; i++)
+    {
+        if (data_points[i].size() == 0)
+        {
+            continue;
+        }
+        acc+=acc_iteration(i,hopeless,helper);
+    }
+    acc *= 0.0001;
+    std::cout<<"accuracy on validation set is:"<<acc<<std::endl;
+}
+
+
+float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &helper){
+    int len;
+    float loss; 
+    if ((data_points[textindex].length()  % 4) == 0)
+    {
+        len = std::floor(data_points[textindex].length() / 4);
+    }
+    else{
+        len = std::floor(data_points[textindex].length() / 4) + 1;
+    }
+    std::vector<float> inputs(380,0);
+    std::vector<float> target(3,0);
+    helper.resize(len+thinktime);
+    if (labels[textindex] == "Positive")
+    {
+        target[0] = 1;
+        target[1] = 0;
+        target[2] = 0; 
+    }
+    else if (labels[textindex] == "Negative")
+    {
+        target[0] = 0;
+        target[1] = 1;
+        target[2] = 0; 
+    }
+    else if (labels[textindex] == "Neutral")
+    {
+        target[0] = 0;
+        target[1] = 0;
+        target[2] = 1; 
+    }
+    else{
+        std::cout<<"ERROR!!!!!!, label"<<std::endl;
+        std::cout<<labels[textindex]<<std::endl;
+        std::exit(EXIT_FAILURE);        
+    }    
+    int fpasscount = 0;
+    for (int i = 0; i < helper.dloss.vec_size; i++)
+    {
+        helper.dloss(i,0) = 0;
+    }
+    for (int i = 0; i < data_points[textindex].length(); i+=4)
+    {
+        std::fill(inputs.begin(),inputs.end(),0);       //defaults to space if there is no character/ isn't ascii
+        //just tiling the loop, we read 4 characters at a time
+        #pragma omp simd
+        for (int j = i; j < (((i + 4) < data_points[textindex].length()) ? (i + 4):data_points[textindex].length()); j++)
+        {
+            std::string chra = "";
+            chra += data_points[textindex][j];
+            inputs[input_convert(chra) + ((j%4)*95)] = 1;
+        }
+        hopeless.forward_pass(model,inputs,helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
+        fpasscount++;   
+    }
+    while(true)
+    {
+        std::vector<float> output(3);
+        std::vector<float> losso(3);
+        std::vector<float> lossb(2);
+        std::vector<float> buzzer(2);
+        std::fill(inputs.begin(),inputs.end(),0);
+        hopeless.forward_pass(model,inputs,helper.pre[fpasscount],helper.post[fpasscount],helper.states,fpasscount);
+        for(int j = 0; j < output.size(); j++){
+            output[j] = hopeless.neural_net[model.output_index[j]].units[15];
+        }
+        for (int j = output.size(); j < 5; j++)
+        {
+            buzzer[j-3] = hopeless.neural_net[model.output_index[j]].units[15];
+        }
+        soft_max(output);
+        soft_max(buzzer);
+        if (*std::max_element(output.begin(),output.end())>0.95f)
+        {
+            std::vector<float> ring(2,0);
+            ring[0] = 1;
+            dsoft_max(buzzer,ring,lossb);
+            for (int j = 0; j < 2; j++)
+            {
+                helper.dloss(fpasscount,3+j)=lossb[j] * 0.04;
+            }
+            dsoft_max(output,target,losso);
+            for (int j = 0; j < 3; j++)
+            {
+                helper.dloss(fpasscount,j)=losso[j] * 0.04;
+            }
+        }
+        if ((buzzer[0]>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
+        {
+            loss = cross_entrophy_loss(target,output);
+            dsoft_max(output,target,losso);
+            for (int j = 0; j < 3; j++)
+            {
+                helper.dloss(fpasscount,j)=losso[j];
+            }
+            for (int j = 0; j < 3; j++)
+            {
+                if(hopeless.neural_net[model.output_index[j]].units[15] > 50){
+                    helper.dloss(fpasscount,j)+=-1.0f;
+                }
+
+            }
+            helper.resize(fpasscount+1);
+            hopeless.bptt(model,helper.dloss,helper.pre,helper.post,helper.f,helper.states,helper.gradients);
+            break;
+        }
+        fpasscount++;
+    }
+    return loss;
+}
+
+int main(){
+    load_data(); 
+    u_int batch_size = 32;
+    u_int threads = 16;
+    NN::npNN ns(model);
+    std::vector<NN::npNN> hopeless(threads,ns);
+    NN::training_essentials eh(model);
+    std::vector<NN::training_essentials> gradientsandmore(threads,eh);
+    std::vector<float> cum_loss(threads,0);
+    NN::network_gradient past_grad(model);
+    NN::network_gradient current_grad(model);
+
+    
+    omp_set_num_threads(threads);
+    
+    int epochs;
+    float l_r;
+    std::cout<<"number of parameters in model:"<<model.parameter_count()<<std::endl;
+    std::cout<<"number of epochs"<<std::endl;
+    std::cin>>epochs;
+    std::cout<<"learning rate"<<std::endl;
+    std::cin>>l_r;
+    int epc = 0;        //to replace the for loops with while loops using a shared variable
+    int t_set_itr = 0;  //to replace the for loops with while loops using a shared variable
+    float epochloss;
+    while(epc < epochs)
+    {
+        l_r *= 0.995;
+        shuffle_tr_data();
+        std::cout<<"Progress for this epoch..."<<std::flush;
+        t_set_itr = 0;
+        epochloss = 0;
+        for (int i = 0; i < cum_loss.size(); i++)
+        {
+            cum_loss[i]=0;
+        }
+        while(t_set_itr < 40000)
+        {       
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < batch_size; i++)
+            {
+                int t_num = omp_get_thread_num();
+                int msg = t_set_itr + i;
+                if (data_points[msg].size() == 0)
+                {
+                    continue;
+                }
+                cum_loss[t_num]+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
+            }
+            for (int i = 1; i < hopeless.size(); i++)
+            {
+                gradientsandmore[0].f.condense(gradientsandmore[i].f);
+            }
+            gradientsandmore[0].f.norm_clip(1);
+            past_grad.sgd_with_momentum(model,l_r,0.95,gradientsandmore[0].f);
+            if((t_set_itr % (batch_size*10))==0){
+                std::cout<<"\r                                                           ";
+                std::cout<<"\rProgress for this epoch...";
+                float progresspercent =100 * t_set_itr/40000;  
+                std::cout<<progresspercent<<"%"<<std::flush;
+            }
+            t_set_itr += batch_size;
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < hopeless.size(); i++)
+            {
+                gradientsandmore[i].f.valclear();
+            }
+        }
+        std::cout<<"\r                                                           "<<std::endl;
+        std::cout<<std::endl;
+        std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
+        std::cout<<std::flush;
+        for (int i = 0; i < cum_loss.size(); i++)
+        {
+            epochloss += cum_loss[i];
+        }
+        std::cout<<"total cross entrophy loss "<<epochloss<<std::endl;
+        if (epc % 10 == 9)
+        {
+            std::string s = std::to_string(epc);
+            model.save_to_txt("checkpoint"+s+".txt");
+            sample_acc(hopeless[0],gradientsandmore[0]);
+        }
+        epc++;
+        std::cout<<std::endl;
+        model.save_to_txt("dump.txt");
+    }    
+    sample_acc(hopeless[0],gradientsandmore[0]);
+    std::string save_filename;
+    while (true)
+    {
+        std::cout<<"save? (y/n) "<<std::endl;
+        char yn;
+        std::cin>>yn;
+        if (yn == 'y')
+        {
+            std::cout<<"Enter name of file to save to"<<std::endl;
+            std::cin>>save_filename;
+            model.save_to_txt(save_filename);
+            break;
+        }
+        else if (yn == 'n')
+        {
+            break;
+        }
+        else{
+            std::cout<<"ERROR, enter y or n"<<std::endl;
+            Sleep(150); //in case you hold onto a key and this message fills the terminal
+        }
+    }
+    return 0;
+}
