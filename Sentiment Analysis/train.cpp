@@ -227,12 +227,12 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
             dsoft_max(buzzer,ring,lossb);
             for (int j = 0; j < 2; j++)
             {
-                helper.dloss(fpasscount,3+j)=lossb[j] * 0.04;
+                helper.dloss(fpasscount,3+j)=lossb[j] * 0.1;
             }
             dsoft_max(output,encoded_target[textindex],losso);
             for (int j = 0; j < 3; j++)
             {
-                helper.dloss(fpasscount,j)=losso[j] * 0.04;
+                helper.dloss(fpasscount,j)=losso[j] * 0.1;
             }
         }
         if ((buzzer[0]>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
@@ -268,10 +268,8 @@ int main(){
     std::vector<NN::npNN> hopeless(threads,ns);
     NN::training_essentials eh(model);
     std::vector<NN::training_essentials> gradientsandmore(threads,eh);
-    std::vector<float> cum_loss(threads,0);
     NN::network_gradient past_grad(model);
     NN::network_gradient current_grad(model);
-
     
     omp_set_num_threads(threads);
     
@@ -294,39 +292,35 @@ int main(){
         epochloss = 0;
         while(t_set_itr < 40000)
         {       
-            #pragma omp parallel
+            #pragma omp parallel for schedule(static) shared(epochloss)
+            for (int i = 0; i < batch_size; i++)
             {
-                float cumloss=0;
                 int t_num = omp_get_thread_num();
-                #pragma omp for schedule(static)
-                for (int i = 0; i < batch_size; i++)
+                int msg = t_set_itr + i;
+                if (data_points[msg].size() == 0)
                 {
-                    int msg = t_set_itr + i;
-                    if (data_points[msg].size() == 0)
-                    {
-                        continue;
-                    }
-                    cumloss+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
+                    continue;
                 }
-                #pragma omp critical
-                {
-                    cum_loss[t_num] = cumloss;
-                }
+                epochloss+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
             }
-
-            for (int i = 1; i < hopeless.size(); i++)
+            #pragma omp parallel for
+            for (int i = 0; i < hopeless.size(); i++)
             {
-                gradientsandmore[0].f.condense(gradientsandmore[i].f);
+                gradientsandmore[i].f.norm_clip(1);
             }
-            gradientsandmore[0].f.norm_clip(1);
-            past_grad.sgd_with_momentum(model,l_r,0.95,gradientsandmore[0].f);
-            if((t_set_itr % (batch_size*20))==0){
+            for (int i = 0; i < hopeless.size(); i++)
+            {
+                current_grad.condense(gradientsandmore[i].f);
+            }
+            past_grad.sgd_with_momentum(model,l_r,0.75,current_grad);
+            if((t_set_itr % (batch_size*10))==0){
                 std::cout<<"\r                                                           ";
                 std::cout<<"\rProgress for this epoch...";
                 float progresspercent =100 * t_set_itr/40000;  
-                std::cout<<progresspercent<<"%"<<std::flush;
+                std::cout<<progresspercent<<"%";
             }
             t_set_itr += batch_size;
+            current_grad.valclear();
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < hopeless.size(); i++)
             {
@@ -337,15 +331,10 @@ int main(){
         std::cout<<std::endl;
         std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
         std::cout<<std::flush;
-        #pragma omp simd
-        for (int i = 0; i < cum_loss.size(); i++)
-        {
-            epochloss += cum_loss[i];
-        }
         std::cout<<"total cross entrophy loss "<<epochloss<<std::endl;
         if (epc % 10 == 9)
         {
-            std::string s = std::to_string(epc);
+            std::string s = std::to_string(epc+1);
             model.save_to_txt("checkpoint"+s+".txt");
             sample_acc(hopeless[0],gradientsandmore[0]);
         }
@@ -378,3 +367,5 @@ int main(){
     }
     return 0;
 }
+
+
