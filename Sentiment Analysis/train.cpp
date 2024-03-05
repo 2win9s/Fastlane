@@ -88,7 +88,7 @@ void encode(){
     }
     for (int i = 0; i < 60000; i++)
     {
-        int len;
+        int len = 0;
         if ((data_points[i].length()  % 4) == 0)
         {
             len = std::floor(data_points[i].length() / 4);
@@ -96,7 +96,7 @@ void encode(){
         else{
             len = std::floor(data_points[i].length() / 4) + 1;
         }
-        encoded_input[i].reserve(len);
+        encoded_input[i].resize(len);
         #pragma omp simd collapse(2)
         for (int j = 0; j < len; j++)
         {
@@ -166,7 +166,6 @@ int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &he
             {
                 acc=1;
             }   
-            dsoft_max(output,encoded_target[textindex],losso);
             break;
         }
         fpasscount++;
@@ -247,6 +246,7 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
             {
                 if(hopeless.neural_net[model.output_index[j]].units[15] > 50){
                     helper.dloss(fpasscount,j)+=-1.0f;
+                    helper.dloss(fpasscount,j)*=0.1;
                 }
 
             }
@@ -303,16 +303,16 @@ int main(){
                 }
                 epochloss+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
             }
-            #pragma omp parallel for
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < hopeless.size(); i++)
             {
-                gradientsandmore[i].f.norm_clip(1);
+                gradientsandmore[i].f.norm_clip(0.1);
             }
             for (int i = 0; i < hopeless.size(); i++)
             {
                 current_grad.condense(gradientsandmore[i].f);
             }
-            past_grad.sgd_with_momentum(model,l_r,0.75,current_grad);
+            past_grad.sgd_with_momentum(model,l_r,0.9,current_grad);
             if((t_set_itr % (batch_size*10))==0){
                 std::cout<<"\r                                                           ";
                 std::cout<<"\rProgress for this epoch...";
