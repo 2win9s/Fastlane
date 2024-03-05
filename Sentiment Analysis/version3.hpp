@@ -1233,7 +1233,6 @@ struct NN
                     gradient_l2_norm+=weight_gradients[i][j]*weight_gradients[i][j];
                 }
             }
-            gradient_l2_norm =std::sqrt(gradient_l2_norm);
             if (gradient_l2_norm < max)
             {
                 return;
@@ -1673,7 +1672,7 @@ struct NN
                     {
                         const int t_step = (n > weights[n][l].x) ? (i):(i-1);
                         gradients(t_step,weights[n][l].x) += dldz * weights[n][l].y;
-                        net_grad.weight_gradients[n][l] += dldz * post[i].values[weights[n][l].x][15]; 
+                        net_grad.weight_gradients[n][l] += dldz * post[t_step].values[weights[n][l].x][15]; 
                     }   
                 }   
             }
@@ -1685,7 +1684,6 @@ struct NN
                 const int & n = layermap[j][k];
                 float nothing = 0;
                 float dldz = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
-                dldz = log_increase(dldz);
                 #pragma omp simd
                 for (int l = 0; l < weights[n].size(); l++)
                 {
@@ -2195,14 +2193,13 @@ struct NN
                     {
 
                         const int & n = nn.layermap[j][k];
-                        float dldz = neural_net[n].backpropagation(nn.neural_net[n],gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n),post[i-1].values[n][15]);
-                        
+                        float dldz = neural_net[n].backpropagation(nn.neural_net[n],gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n),post[i-1].values[n][15]);    
                         #pragma omp simd
                         for (int l = 0; l < nn.weights[n].size(); l++)
                         {
                             const int t_step = (n > nn.weights[n][l].x) ? (i):(i-1);
                             gradients(t_step,nn.weights[n][l].x) += dldz * nn.weights[n][l].y;
-                            net_grad.weight_gradients[n][l] += dldz * post[i].values[nn.weights[n][l].x][15]; 
+                            net_grad.weight_gradients[n][l] += dldz * post[t_step].values[nn.weights[n][l].x][15]; 
                         }   
                     }   
                 }
@@ -2214,7 +2211,6 @@ struct NN
                     const int & n = nn.layermap[j][k];
                     float nothing = 0;
                     float dldz = neural_net[n].backpropagation(nn.neural_net[n],gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
-                    dldz = log_increase(dldz);
                     #pragma omp simd
                     for (int l = 0; l < nn.weights[n].size(); l++)
                     {
