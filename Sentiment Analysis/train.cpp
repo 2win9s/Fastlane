@@ -22,15 +22,17 @@
 NN model("model.txt");
 std::vector<std::string> characters = {" ","!","\"","#","$","%","&","'","(",")","*","+",",","-",".","/","0","1","2","3","4","5","6","7","8","9",":",";","<","=",">","?","@","A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T","U","V","W","X","Y","Z","[","\\","]","^","_","`","a","b","c","d","e","f","g","h","i","j","k","l","m","n","o","p","q","r","s","t","u","v","w","y","z","{","|","}","~"};
 
-std::vector<std::string> data_points(60000);
+std::vector<std::string> inputdata(60000);
 std::vector<std::string> labels(60000);
+std::vector<int> datapoints(60000);
+
 
 std::uniform_int_distribution<int> randtrain(0,39999);   //the first 40thousand data points will be training data
 std::uniform_int_distribution<int> randval(40000,50000); //this is the validation data
 
 std::vector<std::vector<std::array<float,380>>> encoded_input(60000);
 std::vector<std::vector<float>> encoded_target(60000,{0,0,0});
-std::array<float,380> blank_input = {0};
+const std::array<float,380> blank_input = {0};
 const int thinktime=10;
 
 void load_data(){
@@ -38,7 +40,7 @@ void load_data(){
     std::ifstream label("label.txt");
     for (int i = 0; i < 60000; i++)
     {
-        std::getline(data,data_points[i]);
+        std::getline(data,inputdata[i]);
     }
     data.close();
     for (int i = 0; i < 60000; i++)
@@ -89,12 +91,12 @@ void encode(){
     for (int i = 0; i < 60000; i++)
     {
         int len = 0;
-        if ((data_points[i].length()  % 4) == 0)
+        if ((inputdata[i].length()  % 4) == 0)
         {
-            len = std::floor(data_points[i].length() / 4);
+            len = std::floor(inputdata[i].length() / 4);
         }
         else{
-            len = std::floor(data_points[i].length() / 4) + 1;
+            len = std::floor(inputdata[i].length() / 4) + 1;
         }
         encoded_input[i].resize(len);
         #pragma omp simd collapse(2)
@@ -106,20 +108,19 @@ void encode(){
             }
         }
         int msgind = 0;
-        for (int j = 0; j < data_points[i].length(); j+=4)
+        for (int j = 0; j < inputdata[i].length(); j+=4)
         {
             //just tiling the loop, we read 4 characters at a time
             #pragma omp simd
-            for (int k = j; k < (((j + 4) < data_points[i].length()) ? (j + 4):data_points[i].length()); k++)
+            for (int k = j; k < (((j + 4) < inputdata[i].length()) ? (j + 4):inputdata[i].length()); k++)
             {
                 std::string chra = "";
-                chra += data_points[i][k];
+                chra += inputdata[i][k];
                 encoded_input[i][msgind][input_convert(chra) + ((k%4)*95)] = 1;
             }
             msgind ++;
         }
     }
-    
 }
 
 void shuffle_tr_data(){
@@ -129,11 +130,9 @@ void shuffle_tr_data(){
     for(int i = 0; i < 40000; i++){
         int swappos = rint(mtwister);
         swappos = (swappos >= i) ? swappos+1:swappos;
-        std::swap(data_points[i],data_points[swappos]);
-        std::swap(labels[i],labels[swappos]);
+        std::swap(datapoints[i],datapoints[swappos]);
     }
 }
-
 
 int acc_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &helper){
     int acc=0; 
@@ -178,7 +177,7 @@ void sample_acc(NN::npNN &hopeless, NN::training_essentials &helper){
     shuffle_tr_data();
     for (int i = 40000; i < 50000; i++)
     {
-        if (data_points[i].size() == 0)
+        if (inputdata[i].size() == 0)
         {
             continue;
         }
@@ -242,14 +241,6 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
             {
                 helper.dloss(fpasscount,j)=losso[j];
             }
-            for (int j = 0; j < 3; j++)
-            {
-                if(hopeless.neural_net[model.output_index[j]].units[15] > 50){
-                    helper.dloss(fpasscount,j)+=-1.0f;
-                    helper.dloss(fpasscount,j)*=0.1;
-                }
-
-            }
             helper.resize(fpasscount+1);
             hopeless.bptt(model,helper.dloss,helper.pre,helper.post,helper.f,helper.states,helper.gradients);
             break;
@@ -259,10 +250,18 @@ float tr_iteration(int textindex, NN::npNN &hopeless, NN::training_essentials &h
     return loss;
 }
 
+float cosine_anneal_lr(int epoch, int period, float minlr, float maxlr){
+    return (minlr+(0.5*(maxlr - minlr)*(1+std::cos(3.141592653589793f * epoch/period))));
+}
+
 int main(){
+    for (int i = 0; i < 60000; i++)
+    {
+        datapoints[i] = i;
+    }
     load_data(); 
     encode();
-    u_int batch_size = 32;
+    u_int batch_size = 64;
     u_int threads = 16;
     NN::npNN ns(model);
     std::vector<NN::npNN> hopeless(threads,ns);
@@ -270,47 +269,53 @@ int main(){
     std::vector<NN::training_essentials> gradientsandmore(threads,eh);
     NN::network_gradient past_grad(model);
     NN::network_gradient current_grad(model);
-    
     omp_set_num_threads(threads);
-    
     int epochs;
-    float l_r;
+    float mal_r;
+    float mil_r;
+    int period;
     std::cout<<"number of parameters in model:"<<model.parameter_count()<<std::endl;
     std::cout<<"number of epochs"<<std::endl;
     std::cin>>epochs;
-    std::cout<<"learning rate"<<std::endl;
-    std::cin>>l_r;
+    std::cout<<"maximum learning rate"<<std::endl;
+    std::cin>>mal_r;
+    std::cout<<"minimum learning rate"<<std::endl;
+    std::cin>>mil_r;
+    std::cout<<"cosine annealing period"<<std::endl;
+    std::cin>>period;
     int epc = 0;        //to replace the for loops with while loops using a shared variable
     int t_set_itr = 0;  //to replace the for loops with while loops using a shared variable
     float epochloss;
     while(epc < epochs)
     {
-        l_r *= 0.995;
+        float l_r = cosine_anneal_lr(epc,period,mil_r,mal_r);
         shuffle_tr_data();
         std::cout<<"Progress for this epoch..."<<std::flush;
         t_set_itr = 0;
         epochloss = 0;
         while(t_set_itr < 40000)
         {       
-            #pragma omp parallel for schedule(static) shared(epochloss)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < batch_size; i++)
             {
                 int t_num = omp_get_thread_num();
                 int msg = t_set_itr + i;
-                if (data_points[msg].size() == 0)
+                if (inputdata[datapoints[msg]].size() == 0)
                 {
                     continue;
                 }
-                epochloss+=tr_iteration(msg, hopeless[t_num],gradientsandmore[t_num]);
+                epochloss+=tr_iteration(datapoints[msg], hopeless[t_num],gradientsandmore[t_num]);
             }
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < hopeless.size(); i++)
-            {
-                gradientsandmore[i].f.norm_clip(0.1);
-            }
+            current_grad.valclear();
             for (int i = 0; i < hopeless.size(); i++)
             {
                 current_grad.condense(gradientsandmore[i].f);
+            }
+            current_grad.norm_clip(0.5);
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < hopeless.size(); i++)
+            {
+                gradientsandmore[i].f.valclear();
             }
             past_grad.sgd_with_momentum(model,l_r,0.9,current_grad);
             if((t_set_itr % (batch_size*10))==0){
@@ -320,12 +325,6 @@ int main(){
                 std::cout<<progresspercent<<"%";
             }
             t_set_itr += batch_size;
-            current_grad.valclear();
-            #pragma omp parallel for schedule(static)
-            for (int i = 0; i < hopeless.size(); i++)
-            {
-                gradientsandmore[i].f.valclear();
-            }
         }
         std::cout<<"\r                                                           "<<std::endl;
         std::cout<<std::endl;
@@ -341,6 +340,7 @@ int main(){
         epc++;
         std::cout<<std::endl;
         model.save_to_txt("dump.txt");
+        //past_grad.valclear();
     }    
     sample_acc(hopeless[0],gradientsandmore[0]);
     std::string save_filename;
