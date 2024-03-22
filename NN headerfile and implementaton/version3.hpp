@@ -5,7 +5,7 @@
 # https://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
 # ReLU(Agarap) actiation function is also employed 
 # https://arxiv.org/abs/1803.08375
-
+# Layernorm(Ba et Al) : https://arxiv.org/abs/1607.06450
 
 # eventually will implement jagged array to replace all std::vector<std::vector<T>>
 */
@@ -28,9 +28,8 @@
 #include<array>
 
 const float max_val = 10000000000;
-const float n_zero = 0.0001; //try and stop things from freaking out 
+const float n_zero = 0.000001; //try and stop things from freaking out 
 const float leak = 0.01;
-const float memboost = 3.14159265f;
 
 std::uniform_real_distribution<float> zero_to_one(0.0,1.0);
 
@@ -71,7 +70,7 @@ float approx_erfinv(float x){
     static const double a = 0.6802721088435374;         //this is 1/1.47
     static const float pita_inv = 0.4330746750799873;  //this is 1/1.47 times 1/pi times 2
     float w = 1-x*x;
-    w = (w == 1) ? 0.999999:w;
+    w = (w == 1) ? 0.999999f:w;
     w = std::log(w);
     float u = pita_inv+(w*0.5);
     float val = std::sqrt(-u + std::sqrt((u * u) - (a * w)));
@@ -121,27 +120,23 @@ inline float lrelu(float x){
 }
 
 inline float sigmoid(float x){
-    x = (std::abs(x)<70) ? x:70*sign_of(x);     //to prevent underflow and overflow
+    x = (std::abs(x)<50) ?x:50*sign_of(x);     //to prevent underflow and overflow
     return 1.0f/(std::exp(-x)+1);
 }
 
 void soft_max(std::vector<float> &output){
     double denominator = 0;
-    std::vector<float> expout(output.size());
     for (int i = 0; i < output.size(); i++)
     {
-        expout[i] = std::exp(output[i]);
-        if (broken_float(expout[i]))
-        {
-            expout[i] = max_val;
-        }
-        denominator += expout[i]; 
+        output[i] = (std::abs(output[i])<50) ?output[i]:50*sign_of(output[i]);
+        output[i] = std::exp(output[i]);
+        denominator += output[i]; 
     }
-    denominator = (std::abs(denominator) < 0.001) ? 0.001:denominator;
+    denominator = (std::abs(denominator) < n_zero) ? n_zero:denominator;
     denominator = 1 / denominator; 
     for (int i = 0; i < output.size(); i++)
     {
-        output[i] = expout[i] * denominator;
+        output[i] = output[i] * denominator;
     }
 }
 
@@ -174,43 +169,45 @@ struct neuron_gradients
     float bias[16] = {0};
     float alpha[16] = {0};
     float weights[9][7] = {0};
-    float padding;
+    float padding = 0;
     inline void valclear(){    //wrapper function for memset
         memset(alpha,0,sizeof(alpha));
         memset(bias,0,sizeof(bias));
-        memset(weights,0,sizeof(weights));
+        memset(weights,0,sizeof(float)*9*7);
     }   
+
+    // zeros out the current gradient
     template <typename neuron>
-    inline void sgd_with_momentum(neuron &n, float learning_rate, float momentum, neuron_gradients current_grad){    
+    inline void sgd_with_momentum(neuron &n, float learning_rate, float beta, neuron_gradients &current_grad, float b_correction=1){    
+        float b = 1 - beta;
+        learning_rate *= (-b_correction);
         #pragma omp simd
         for (uint8_t i = 0; i < 16; i++)
         {
-            bias[i] *= momentum;
-            current_grad.bias[i] *= learning_rate;
-            bias[i] += current_grad.bias[i];
-            n.bias[i] -= bias[i];
+            bias[i] *= beta;
+            bias[i] += current_grad.bias[i] * b;
+            n.bias[i] += bias[i] * learning_rate;
+            current_grad.bias[i] = 0;
         }
         
         #pragma omp simd
         for (uint8_t i = 0; i < 16; i++)
         {
-            alpha[i] *= momentum;
-            current_grad.alpha[i] *= learning_rate;
-            alpha[i] += current_grad.alpha[i];
-            n.alpha[i] -= alpha[i];
+            alpha[i] *= beta;
+            alpha[i] += current_grad.alpha[i] * b;
+            n.alpha[i] += alpha[i] * learning_rate;
+            current_grad.alpha[i] = 0;
         }
-
+        #pragma omp simd collapse(2)
         for (uint8_t i = 0; i < 9; i++)
         {
-            #pragma omp simd
             for (uint8_t j = 0; j < 7; j++)
             {
-                weights[i][j] *= momentum;
-                current_grad.weights[i][j] *= learning_rate;
-                weights[i][j] += current_grad.weights[i][j];
-                n.weights[i][j] -= weights[i][j];
+                weights[i][j] *= beta;
+                weights[i][j] += current_grad.weights[i][j] * b;
+                n.weights[i][j] += weights[i][j] * learning_rate;
+                current_grad.weights[i][j] = 0;
             }
-            
         }
         
     }
@@ -253,12 +250,14 @@ struct neuron_unit
     float alpha[16] = {0};     // from Re:Zero is all you need 
     float weights[9][7];
     uint16_t isinput = 0;         
-    int16_t a_f = 0;          //activation function defaults to ReLU
+    int16_t a_f = 0;          //activation function defaults to ReLU with layernorm
     //tags for tag dispatching
     struct relu_neuron{relu_neuron(){}};            // a_f = 0
     struct sine_neuron{sine_neuron(){}};            // a_f = 1
     struct log_relu_neuron{log_relu_neuron(){}};    // a_f = 2
-    struct memory_neuron{memory_neuron(){}};        // a_f = 3 (input unit is mrelu, other units relu)
+    struct memory_neuron{memory_neuron(){}};        // a_f = 3
+    struct sin_memory_neuron{sin_memory_neuron(){}};        // a_f = 4
+    struct layernorm_tag{layernorm_tag(){}};
     
     neuron_unit(){
         //  Xavier initialisation
@@ -348,6 +347,73 @@ struct neuron_unit
         units[15] += pacts[15] * alpha[15];
     }
 
+    template <typename T>
+    inline void f_p(std::array<float,16> &pacts, T af, layernorm_tag &){ //pacts here refers to values obtained after applying activation function
+        units[0] += bias[0];
+        pacts[0] = act_func(units[0],af);
+        units[0] += (pacts[0] * alpha[0]);
+
+        float mean = 0;
+        float sd = 0;
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            units[i] = units[0] * weights[0][i-1];
+            units[i] += bias[i];
+            pacts[i] = act_func(units[i],af);
+            units[i] += pacts[i] * alpha[i];
+
+            // for layernorm
+            mean += units[i];
+        }
+
+        mean *= 0.14285714285714285f;           // divide by 7
+
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            sd += (units[i] - mean)*(units[i] - mean);
+        }
+
+        sd *= 0.14285714285714285f;           // divide by 7
+        sd = std::sqrt(sd);
+        sd = 1.0f/(sd+n_zero);
+        // layernorm part
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            units[i] = (units[i] - mean)*sd;
+        }
+
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            units[i] = bias[i];        
+        }
+        #pragma omp simd collapse(2)
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            for (uint8_t j = 0; j < 7; j++)
+            {
+                units[i] += units[j+1] * weights[i-7][j];
+            }    
+        }
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            pacts[i] = act_func(units[i],af);
+            units[i] += pacts[i] * alpha[i];
+        }
+        units[15] = bias[15];
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            units[15] += units[i] * weights[8][i-8];
+        }
+        pacts[15] = act_func(units[15],af);
+        units[15] += pacts[15] * alpha[15];
+    }
+
     inline void f_p(std::array<float,16> &pacts,  memory_neuron &){ //pacts here refers to values obtained after applying activation function
         units[0] += bias[0];
         pacts[0] = relu(units[0]);
@@ -382,6 +448,40 @@ struct neuron_unit
         // the output will be determined elsewhere
     }
 
+    inline void f_p(std::array<float,16> &pacts,  sin_memory_neuron &){ //pacts here refers to values obtained after applying activation function
+        units[0] += bias[0];
+        pacts[0] = relu(units[0]);
+        units[0] += (pacts[0] * alpha[0]);
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            units[i] = units[0] * weights[0][i-1];
+            units[i] += bias[i];
+            pacts[i] = std::sin(units[i]);
+            units[i] = pacts[i] * alpha[i];
+        }
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            units[i] = bias[i];        
+        }
+        #pragma omp simd collapse(2)
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            for (uint8_t j = 0; j < 7; j++)
+            {
+                units[i] += units[j+1] * weights[i-7][j];
+            }    
+        }
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            pacts[i] = std::sin(units[i]);
+            units[i] = pacts[i] * alpha[i];
+        }
+        // the output will be determined elsewhere
+    }
+
     inline void mem_update(float ht_m1){
         float a = alpha[15];
         float b = bias[15];
@@ -403,6 +503,8 @@ struct neuron_unit
         log_relu_neuron l;
         relu_neuron r;
         memory_neuron m;
+        sin_memory_neuron si;
+        layernorm_tag lt;
         switch (a_f)
         {
         case 1:
@@ -415,65 +517,14 @@ struct neuron_unit
             f_p(pacts,m);
             mem_update(ht_m1);
             return;
-        default:
+        case 4:
+            f_p(pacts,si);
+            mem_update(ht_m1);
+            return;
+        case 5:
             f_p(pacts,r);
-            return;
-        }
-    }
-
-    // forwardpass without recording post activations for each unit
-    template <typename T>
-    inline void f_p(T af){
-        units[0] += bias[0];
-        units[0] += (act_func(units[0],af) * alpha[0]);
-        #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
-        {
-            units[i] = units[0] * weights[0][i-1];
-            units[i] += bias[i];
-            units[i] += act_func(units[i],af) * alpha[i];
-        }
-        #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
-        {
-            units[i] = bias[i];        
-        }
-        #pragma omp simd collapse(2)
-        for (uint8_t i = 8; i < 15; i++)
-        {
-            for (uint8_t j = 0; j < 7; j++)
-            {
-                units[i] += units[j+1] * weights[i-7][j];
-            }    
-        }
-        #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
-        {
-            units[i] += act_func(units[i],af) * alpha[i];
-        }
-        units[15] = bias[15];
-        #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
-        {
-            units[15] += units[i] * weights[8][i-8];
-        }
-        units[15] += act_func(units[15],af) * alpha[15];
-    }
-
-    inline void forward_pass(){
-        sine_neuron s;
-        log_relu_neuron l;
-        relu_neuron r;
-        switch (a_f)
-        {
-        case 1:
-            f_p(s);
-            return;
-        case 2:
-            f_p(l);
-            return;
         default:
-            f_p(r);
+            f_p(pacts,r,lt);
             return;
         }
     }
@@ -493,8 +544,10 @@ struct neuron_unit
             b += past_unit[i] * weights[8][i-8];
         }
         tm1grad += dldz;
-        float da = dldz * (sigmoid(a)*(1-sigmoid(a))*(std::tanh(b)));
-        float db = dldz * sigmoid(a)*(1-(std::tanh(b))*(std::tanh(b)));
+        float tanhb = std::tanh(b);
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
+        float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
         units[0] = 0;
@@ -505,13 +558,13 @@ struct neuron_unit
         units[5] = 0;
         units[6] = 0;
         units[7] = 0;
-        #pragma omp simd collapse(2)
         for (uint8_t i = 8; i < 11; i++){
             units[i] = da*weights[8][i-8];
             gradients.weights[8][i-8] += da*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*alpha[i]*drelu(pacts[i]);
             gradients.bias[i] += units[i];
+            #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
                 units[j+1] += units[i] * weights[i-7][j];
@@ -522,7 +575,7 @@ struct neuron_unit
             units[i] = db*weights[8][i-8];
             gradients.weights[8][i-8] += db*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*alpha[i]*drelu(pacts[i]);
             gradients.bias[i] += units[i];
             #pragma omp simd
             for (int j = 0; j < 7; j++)
@@ -535,12 +588,81 @@ struct neuron_unit
         for (int i = 1; i < 8; i++)
         {
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*(alpha[i]*drelu(pacts[i]));
             gradients.bias[i] += units[i];
             units[0] += units[i] * weights[0][i-1];
         }
         gradients.alpha[0] += units[0] * pacts[0];
-        units[0] *= (1 + (alpha[0] * drelu(pacts[0])));
+        units[0] += units[0] * alpha[0] * drelu(pacts[0]);
+        gradients.bias[0] += units[0];
+        return units[0];
+    }    
+
+    inline float backprop(float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, sin_memory_neuron&, float &tm1grad)
+    {   
+        float a = alpha[15];
+        float b = bias[15];
+        #pragma omp simd
+        for (uint8_t i = 8; i < 11; i++)
+        {
+            a += past_unit[i] * weights[8][i-8];
+        }
+        #pragma omp simd
+        for (uint8_t i = 11; i < 15; i++)
+        {
+            b += past_unit[i] * weights[8][i-8];
+        }
+        tm1grad += dldz;
+        float tanhb = std::tanh(b);
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
+        float db = dldz * siga*(1-(tanhb*tanhb));
+        gradients.alpha[15] += da;
+        gradients.bias[15] += db;
+        units[0] = 0;
+        units[1] = 0;
+        units[2] = 0;
+        units[3] = 0;
+        units[4] = 0;
+        units[5] = 0;
+        units[6] = 0;
+        units[7] = 0;
+        for (uint8_t i = 8; i < 11; i++){
+            units[i] = da*weights[8][i-8];
+            gradients.weights[8][i-8] += da*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        for (uint8_t i = 11; i < 15; i++){
+            units[i] = db*weights[8][i-8];
+            gradients.weights[8][i-8] += db*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            units[0] += units[i] * weights[0][i-1];
+        }
+        gradients.alpha[0] += units[0] * pacts[0];
+        units[0] += units[0] * alpha[0] * drelu(pacts[0]);
         gradients.bias[0] += units[0];
         return units[0];
     }    
@@ -550,7 +672,7 @@ struct neuron_unit
     inline float backprop(float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, T af)
     {   
         gradients.alpha[15] += dldz * pacts[15];
-        dldz = dldz * (1 + (alpha[15] * dact_func(pacts[15],af)));
+        dldz += dldz * alpha[15] * dact_func(pacts[15],af);
         gradients.bias[15] += dldz;
         units[0] = 0;
         units[1] = 0;
@@ -564,7 +686,7 @@ struct neuron_unit
             units[i] = dldz*weights[8][i-8];
             gradients.weights[8][i-8] += dldz*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(alpha[i]*dact_func(pacts[i],af)));
+            units[i] += units[i]*alpha[i]*dact_func(pacts[i],af);
             gradients.bias[i] += units[i];
             #pragma omp simd
             for (int j = 0; j < 7; j++)
@@ -577,21 +699,102 @@ struct neuron_unit
         for (int i = 1; i < 8; i++)
         {
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(alpha[i]*dact_func(pacts[i],af)));
+            units[i] += units[i]*alpha[i]*dact_func(pacts[i],af);
             gradients.bias[i] += units[i];
             units[0] += units[i] * weights[0][i-1];
         }
         gradients.alpha[0] += units[0] * pacts[0];
-        units[0] *= (1 + (alpha[0] * dact_func(pacts[0],af)));
+        units[0] += units[0] * alpha[0] * dact_func(pacts[0],af);
         gradients.bias[0] += units[0];
         return units[0];
     }    
     
+
+    // note the units array will be used to store gradients
+    template <typename T>
+    inline float backprop(float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, T af, layernorm_tag &)
+    {   
+        gradients.alpha[15] += dldz * pacts[15];
+        dldz += dldz * alpha[15] * dact_func(pacts[15],af);
+        gradients.bias[15] += dldz;
+        units[0] = 0;
+        units[1] = 0;
+        units[2] = 0;
+        units[3] = 0;
+        units[4] = 0;
+        units[5] = 0;
+        units[6] = 0;
+        units[7] = 0;
+        float mean = 0;
+        float sd = 0;
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            mean += past_unit[i];
+        }
+        
+        mean *= 0.14285714285714285f;           // divide by 7
+
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            sd += (past_unit[i] - mean)*(past_unit[i] - mean);
+        }
+
+        sd *= 0.14285714285714285f;           // divide by 7
+        sd = std::sqrt(sd);
+        float den = 0.14285714285714285f/(sd+0.00000001f);
+        sd = 1.0f/(sd+n_zero);
+        for(int i = 8 ; i < 15; i++){
+            units[i] = dldz*weights[8][i-8];
+            gradients.weights[8][i-8] += dldz*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] += units[i]*alpha[i]*dact_func(pacts[i],af);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        units[8] = 0;
+        units[9] = 0;
+        units[10] = 0;
+        units[11] = 0;
+        units[12] = 0;
+        units[13] = 0;
+        units[14] = 0;
+        #pragma omp simd collapse(2)
+        for (int i = 1; i < 8; i++)
+        {
+            float component = (past_unit[i]-mean) * sd * sd * den;            
+            for (int j = 8; j < 15; j++)
+            {
+                units[j] += units[i] * (sd * ((i==(j-7))-0.14285714285714285f) - component * (past_unit[j-7]-mean));
+            }
+        }
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            gradients.alpha[i] += units[i+7] * pacts[i];
+            units[i+7] += units[i+7]*(alpha[i]*dact_func(pacts[i],af));
+            gradients.bias[i] += units[i+7];
+            units[0] += units[i+7] * weights[0][i-1];
+        }
+        gradients.alpha[0] += units[0] * pacts[0];
+        units[0] += units[0] * alpha[0] * dact_func(pacts[0],af);
+        gradients.bias[0] += units[0];
+        return units[0];
+    }    
+
     inline float backpropagation(float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients,float &tm1grad){
         sine_neuron s;
         log_relu_neuron l;
         relu_neuron r;
         memory_neuron m;
+        sin_memory_neuron si;
+        layernorm_tag lt;
         switch (a_f)
         {
         case 1:
@@ -600,8 +803,13 @@ struct neuron_unit
             return backprop(dldz, past_unit, pacts, gradients, l);
         case 3:
             return backprop(dldz,past_unit, pacts,gradients, m,tm1grad);
+        case 4:
+            return backprop(dldz,past_unit, pacts,gradients, si,tm1grad);   
+        case 5:
+            return backprop(dldz,past_unit, pacts,gradients, r);   
         default:
-            return backprop(dldz, past_unit, pacts, gradients, r);
+            return backprop(dldz, past_unit, pacts, gradients, r, lt);
+            //return backprop(dldz,past_unit, pacts,gradients, r);   
         }
     }
 };
@@ -614,8 +822,10 @@ struct np_neuron_unit
     struct relu_neuron{relu_neuron(){}};            // a_f = 0
     struct sine_neuron{sine_neuron(){}};            // a_f = 1
     struct log_relu_neuron{log_relu_neuron(){}};    // a_f = 2
-    struct memory_neuron{memory_neuron(){}};        // a_f = 3 (input unit is mrelu, other units relu)
-    
+    struct memory_neuron{memory_neuron(){}};        // a_f = 3
+    struct sin_memory_neuron{sin_memory_neuron(){}};        // a_f = 4
+    struct layernorm_tag{layernorm_tag(){}};
+
     inline void valclear(){    //wrapper function for memset on units
         memset(units,0,sizeof(units));
     };
@@ -645,194 +855,248 @@ struct np_neuron_unit
     }
     
     template <typename T>
-    inline void f_p(neuron_unit & nu, std::array<float,16> &pacts, T af){ //pacts here refers to values obtained after applying activation function
-        units[0] += nu.bias[0];
+    inline void f_p(neuron_unit &n, std::array<float,16> &pacts, T af){ //pacts here refers to values obtained after applying activation function
+        units[0] += n.bias[0];
         pacts[0] = act_func(units[0],af);
-        units[0] += (pacts[0] * nu.alpha[0]);
+        units[0] += (pacts[0] * n.alpha[0]);
         #pragma omp simd
         for (uint8_t i = 1; i < 8; i++)
         {
-            units[i] = units[0] * nu.weights[0][i-1];
-            units[i] += nu.bias[i];
+            units[i] = units[0] * n.weights[0][i-1];
+            units[i] += n.bias[i];
             pacts[i] = act_func(units[i],af);
-            units[i] += pacts[i] * nu.alpha[i];
+            units[i] += pacts[i] * n.alpha[i];
         }
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
-            units[i] = nu.bias[i];        
+            units[i] = n.bias[i];        
         }
         #pragma omp simd collapse(2)
         for (uint8_t i = 8; i < 15; i++)
         {
             for (uint8_t j = 0; j < 7; j++)
             {
-                units[i] += units[j+1] * nu.weights[i-7][j];
+                units[i] += units[j+1] * n.weights[i-7][j];
             }    
         }
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
             pacts[i] = act_func(units[i],af);
-            units[i] += pacts[i] * nu.alpha[i];
+            units[i] += pacts[i] * n.alpha[i];
         }
-        units[15] = nu.bias[15];
+        units[15] = n.bias[15];
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
-            units[15] += units[i] * nu.weights[8][i-8];
+            units[15] += units[i] * n.weights[8][i-8];
         }
         pacts[15] = act_func(units[15],af);
-        units[15] += pacts[15] * nu.alpha[15];
+        units[15] += pacts[15] * n.alpha[15];
     }
 
-    inline void f_p(neuron_unit & nu, std::array<float,16> &pacts,  memory_neuron &){ //pacts here refers to values obtained after applying activation function
-        units[0] += nu.bias[0];
-        pacts[0] = relu(units[0]);
-        units[0] += (pacts[0] * nu.alpha[0]);
+    template <typename T>
+    inline void f_p(neuron_unit &n, std::array<float,16> &pacts, T af, layernorm_tag &){ //pacts here refers to values obtained after applying activation function
+        units[0] += n.bias[0];
+        pacts[0] = act_func(units[0],af);
+        units[0] += (pacts[0] * n.alpha[0]);
+
+        float mean = 0;
+        float sd = 0;
         #pragma omp simd
         for (uint8_t i = 1; i < 8; i++)
         {
-            units[i] = units[0] * nu.weights[0][i-1];
-            units[i] += nu.bias[i];
-            pacts[i] = relu(units[i]);
-            units[i] += pacts[i] * nu.alpha[i];
+            units[i] = units[0] * n.weights[0][i-1];
+            units[i] += n.bias[i];
+            pacts[i] = act_func(units[i],af);
+            units[i] += pacts[i] * n.alpha[i];
+
+            // for layernorm
+            mean += units[i];
         }
+
+        mean *= 0.14285714285714285f;           // divide by 7
+
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            sd += (units[i] - mean)*(units[i] - mean);
+        }
+
+        sd *= 0.14285714285714285f;           // divide by 7
+        sd = std::sqrt(sd);
+        sd = 1.0f/(sd+n_zero);
+        // layernorm part
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            units[i] = (units[i] - mean)*sd;
+        }
+
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
-            units[i] = nu.bias[i];        
+            units[i] = n.bias[i];        
         }
         #pragma omp simd collapse(2)
         for (uint8_t i = 8; i < 15; i++)
         {
             for (uint8_t j = 0; j < 7; j++)
             {
-                units[i] += units[j+1] * nu.weights[i-7][j];
+                units[i] += units[j+1] * n.weights[i-7][j];
+            }    
+        }
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            pacts[i] = act_func(units[i],af);
+            units[i] += pacts[i] * n.alpha[i];
+        }
+        units[15] = n.bias[15];
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            units[15] += units[i] * n.weights[8][i-8];
+        }
+        pacts[15] = act_func(units[15],af);
+        units[15] += pacts[15] * n.alpha[15];
+    }
+
+    inline void f_p(neuron_unit &n,std::array<float,16> &pacts,  memory_neuron &){ //pacts here refers to values obtained after applying activation function
+        units[0] += n.bias[0];
+        pacts[0] = relu(units[0]);
+        units[0] += (pacts[0] * n.alpha[0]);
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            units[i] = units[0] * n.weights[0][i-1];
+            units[i] += n.bias[i];
+            pacts[i] = relu(units[i]);
+            units[i] += pacts[i] * n.alpha[i];
+        }
+        #pragma omp simd
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            units[i] = n.bias[i];        
+        }
+        #pragma omp simd collapse(2)
+        for (uint8_t i = 8; i < 15; i++)
+        {
+            for (uint8_t j = 0; j < 7; j++)
+            {
+                units[i] += units[j+1] * n.weights[i-7][j];
             }    
         }
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
             pacts[i] = relu(units[i]);
-            units[i] += pacts[i] * nu.alpha[i];
+            units[i] += pacts[i] * n.alpha[i];
         }
         // the output will be determined elsewhere
     }
 
-    inline void mem_update(neuron_unit & nu, float ht_m1){
-        float a = nu.alpha[15];
-        float b = nu.bias[15];
-        #pragma omp simd
-        for (uint8_t i = 8; i < 11; i++)
-        {
-            a += units[i] * nu.weights[8][i-8];
-        }
-        #pragma omp simd
-        for (uint8_t i = 11; i < 15; i++)
-        {
-            b += units[i] * nu.weights[8][i-8];
-        }
-        units[15] = ht_m1 + std::tanh(b)*sigmoid(a);
-    }
-
-    inline void forward_pass(neuron_unit & nu,std::array<float,16> &pacts,float ht_m1=0){
-        sine_neuron s;
-        log_relu_neuron l;
-        relu_neuron r;
-        memory_neuron m;
-        switch (nu.a_f)
-        {
-        case 1:
-            f_p(nu,pacts,s);
-            return;
-        case 2:
-            f_p(nu,pacts,l);
-            return;
-        case 3:
-            f_p(nu,pacts,m);
-            mem_update(nu,ht_m1);
-            return;
-        default:
-            f_p(nu,pacts,r);
-            return;
-        }
-    }
-
-    // forwardpass without recording post activations for each unit
-    template <typename T>
-    inline void f_p(neuron_unit & nu, T af){
-        units[0] += nu.bias[0];
-        units[0] += (act_func(units[0],af) * nu.alpha[0]);
+    inline void f_p(neuron_unit &n,std::array<float,16> &pacts,  sin_memory_neuron &){ //pacts here refers to values obtained after applying activation function
+        units[0] += n.bias[0];
+        pacts[0] = relu(units[0]);
+        units[0] += (pacts[0] * n.alpha[0]);
         #pragma omp simd
         for (uint8_t i = 1; i < 8; i++)
         {
-            units[i] = units[0] * nu.weights[0][i-1];
-            units[i] += nu.bias[i];
-            units[i] += act_func(units[i],af) * nu.alpha[i];
+            units[i] = units[0] * n.weights[0][i-1];
+            units[i] += n.bias[i];
+            pacts[i] = std::sin(units[i]);
+            units[i] = pacts[i] * n.alpha[i];
         }
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
-            units[i] = nu.bias[i];        
+            units[i] = n.bias[i];        
         }
         #pragma omp simd collapse(2)
         for (uint8_t i = 8; i < 15; i++)
         {
             for (uint8_t j = 0; j < 7; j++)
             {
-                units[i] += units[j+1] * nu.weights[i-7][j];
+                units[i] += units[j+1] * n.weights[i-7][j];
             }    
         }
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
-            units[i] += act_func(units[i],af) * nu.alpha[i];
+            pacts[i] = std::sin(units[i]);
+            units[i] = pacts[i] * n.alpha[i];
         }
-        units[15] = nu.bias[15];
-        #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
-        {
-            units[15] += units[i] * nu.weights[8][i-8];
-        }
-        units[15] += act_func(units[15],af) * nu.alpha[15];
+        // the output will be determined elsewhere
     }
 
-    inline void forward_pass(neuron_unit & nu){
-        sine_neuron s;
-        log_relu_neuron l;
-        relu_neuron r;
-        switch (nu.a_f)
-        {
-        case 1:
-            f_p(nu,s);
-            return;
-        case 2:
-            f_p(nu,l);
-            return;
-        default:
-            f_p(nu,r);
-            return;
-        }
-    }
-
-    inline float backprop(neuron_unit & nu, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, memory_neuron&, float &tm1grad)
-    {   
-        float a = nu.alpha[15];
-        float b = nu.bias[15];
+    inline void mem_update(neuron_unit &n,float ht_m1){
+        float a = n.alpha[15];
+        float b = n.bias[15];
         #pragma omp simd
         for (uint8_t i = 8; i < 11; i++)
         {
-            a += past_unit[i] * nu.weights[8][i-8];
+            a += units[i] * n.weights[8][i-8];
         }
         #pragma omp simd
         for (uint8_t i = 11; i < 15; i++)
         {
-            b += past_unit[i] * nu.weights[8][i-8];
+            b += units[i] * n.weights[8][i-8];
+        }
+        units[15] = ht_m1 + std::tanh(b)*sigmoid(a);
+    }
+
+    inline void forward_pass(neuron_unit &n, std::array<float,16> &pacts,float ht_m1=0){
+        sine_neuron s;
+        log_relu_neuron l;
+        relu_neuron r;
+        memory_neuron m;
+        sin_memory_neuron si;
+        layernorm_tag lt;
+        switch (n.a_f)
+        {
+        case 1:
+            f_p(n,pacts,s);
+            return;
+        case 2:
+            f_p(n,pacts,l);
+            return;
+        case 3:
+            f_p(n,pacts,m);
+            mem_update(n,ht_m1);
+            return;
+        case 4:
+            f_p(n,pacts,si);
+            mem_update(n,ht_m1);
+            return;
+        case 5:
+            f_p(n,pacts,r);
+        default:
+            f_p(n,pacts,r,lt);
+            return;
+        }
+    }
+
+    inline float backprop(neuron_unit &n, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, memory_neuron&, float &tm1grad)
+    {   
+        float a = n.alpha[15];
+        float b = n.bias[15];
+        #pragma omp simd
+        for (uint8_t i = 8; i < 11; i++)
+        {
+            a += past_unit[i] * n.weights[8][i-8];
+        }
+        #pragma omp simd
+        for (uint8_t i = 11; i < 15; i++)
+        {
+            b += past_unit[i] * n.weights[8][i-8];
         }
         tm1grad += dldz;
-        float da = dldz * (sigmoid(a)*(1-sigmoid(a))*(std::tanh(b)));
-        float db = dldz * sigmoid(a)*(1-(std::tanh(b))*(std::tanh(b)));
+        float tanhb = std::tanh(b);
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
+        float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
         units[0] = 0;
@@ -844,28 +1108,28 @@ struct np_neuron_unit
         units[6] = 0;
         units[7] = 0;
         for (uint8_t i = 8; i < 11; i++){
-            units[i] = da*nu.weights[8][i-8];
+            units[i] = da*n.weights[8][i-8];
             gradients.weights[8][i-8] += da*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(nu.alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*n.alpha[i]*drelu(pacts[i]);
             gradients.bias[i] += units[i];
             #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
-                units[j+1] += units[i] * nu.weights[i-7][j];
+                units[j+1] += units[i] * n.weights[i-7][j];
                 gradients.weights[i-7][j] += units[i]*past_unit[j+1];
             }
         }
         for (uint8_t i = 11; i < 15; i++){
-            units[i] = db*nu.weights[8][i-8];
+            units[i] = db*n.weights[8][i-8];
             gradients.weights[8][i-8] += db*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(nu.alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*n.alpha[i]*drelu(pacts[i]);
             gradients.bias[i] += units[i];
             #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
-                units[j+1] += units[i] * nu.weights[i-7][j];
+                units[j+1] += units[i] * n.weights[i-7][j];
                 gradients.weights[i-7][j] += units[i]*past_unit[j+1];
             }
         }
@@ -873,22 +1137,91 @@ struct np_neuron_unit
         for (int i = 1; i < 8; i++)
         {
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(nu.alpha[i]*drelu(pacts[i])));
+            units[i] += units[i]*(n.alpha[i]*drelu(pacts[i]));
             gradients.bias[i] += units[i];
-            units[0] += units[i] * nu.weights[0][i-1];
+            units[0] += units[i] * n.weights[0][i-1];
         }
         gradients.alpha[0] += units[0] * pacts[0];
-        units[0] *= (1 + (nu.alpha[0] * drelu(pacts[0])));
+        units[0] += units[0] * n.alpha[0] * drelu(pacts[0]);
+        gradients.bias[0] += units[0];
+        return units[0];
+    }    
+
+    inline float backprop(neuron_unit &n, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, sin_memory_neuron&, float &tm1grad)
+    {   
+        float a = n.alpha[15];
+        float b = n.bias[15];
+        #pragma omp simd
+        for (uint8_t i = 8; i < 11; i++)
+        {
+            a += past_unit[i] * n.weights[8][i-8];
+        }
+        #pragma omp simd
+        for (uint8_t i = 11; i < 15; i++)
+        {
+            b += past_unit[i] * n.weights[8][i-8];
+        }
+        tm1grad += dldz;
+        float tanhb = std::tanh(b);
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
+        float db = dldz * siga*(1-(tanhb*tanhb));
+        gradients.alpha[15] += da;
+        gradients.bias[15] += db;
+        units[0] = 0;
+        units[1] = 0;
+        units[2] = 0;
+        units[3] = 0;
+        units[4] = 0;
+        units[5] = 0;
+        units[6] = 0;
+        units[7] = 0;
+        for (uint8_t i = 8; i < 11; i++){
+            units[i] = da*n.weights[8][i-8];
+            gradients.weights[8][i-8] += da*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*n.alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * n.weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        for (uint8_t i = 11; i < 15; i++){
+            units[i] = db*n.weights[8][i-8];
+            gradients.weights[8][i-8] += db*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*n.alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * n.weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] = units[i]*n.alpha[i]*cos_sinx(pacts[i]);
+            gradients.bias[i] += units[i];
+            units[0] += units[i] * n.weights[0][i-1];
+        }
+        gradients.alpha[0] += units[0] * pacts[0];
+        units[0] += units[0] * n.alpha[0] * drelu(pacts[0]);
         gradients.bias[0] += units[0];
         return units[0];
     }    
 
     // note the units array will be used to store gradients
     template <typename T>
-    inline float backprop(neuron_unit & nu, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, T af)
+    inline float backprop(neuron_unit &n, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, T af)
     {   
         gradients.alpha[15] += dldz * pacts[15];
-        dldz = dldz * (1 + (nu.alpha[15] * dact_func(pacts[15],af)));
+        dldz += dldz * n.alpha[15] * dact_func(pacts[15],af);
         gradients.bias[15] += dldz;
         units[0] = 0;
         units[1] = 0;
@@ -899,15 +1232,15 @@ struct np_neuron_unit
         units[6] = 0;
         units[7] = 0;
         for(int i = 8 ; i < 15; i++){
-            units[i] = dldz*nu.weights[8][i-8];
+            units[i] = dldz*n.weights[8][i-8];
             gradients.weights[8][i-8] += dldz*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(nu.alpha[i]*dact_func(pacts[i],af)));
+            units[i] += units[i]*n.alpha[i]*dact_func(pacts[i],af);
             gradients.bias[i] += units[i];
             #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
-                units[j+1] += units[i] * nu.weights[i-7][j];
+                units[j+1] += units[i] * n.weights[i-7][j];
                 gradients.weights[i-7][j] += units[i]*past_unit[j+1];
             }
         }
@@ -915,31 +1248,117 @@ struct np_neuron_unit
         for (int i = 1; i < 8; i++)
         {
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] = units[i]*(1+(nu.alpha[i]*dact_func(pacts[i],af)));
+            units[i] += units[i]*n.alpha[i]*dact_func(pacts[i],af);
             gradients.bias[i] += units[i];
-            units[0] += units[i] * nu.weights[0][i-1];
+            units[0] += units[i] * n.weights[0][i-1];
         }
         gradients.alpha[0] += units[0] * pacts[0];
-        units[0] *= (1 + (nu.alpha[0] * dact_func(pacts[0],af)));
+        units[0] += units[0] * n.alpha[0] * dact_func(pacts[0],af);
         gradients.bias[0] += units[0];
         return units[0];
     }    
     
-    inline float backpropagation(neuron_unit & nu,float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients,float &tm1grad){
+
+    // note the units array will be used to store gradients
+    template <typename T>
+    inline float backprop(neuron_unit &n, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients, T af, layernorm_tag &)
+    {   
+        gradients.alpha[15] += dldz * pacts[15];
+        dldz += dldz * n.alpha[15] * dact_func(pacts[15],af);
+        gradients.bias[15] += dldz;
+        units[0] = 0;
+        units[1] = 0;
+        units[2] = 0;
+        units[3] = 0;
+        units[4] = 0;
+        units[5] = 0;
+        units[6] = 0;
+        units[7] = 0;
+        float mean = 0;
+        float sd = 0;
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            mean += past_unit[i];
+        }
+        
+        mean *= 0.14285714285714285f;           // divide by 7
+
+        #pragma omp simd
+        for (uint8_t i = 1; i < 8; i++)
+        {
+            sd += (past_unit[i] - mean)*(past_unit[i] - mean);
+        }
+
+        sd *= 0.14285714285714285f;           // divide by 7
+        sd = std::sqrt(sd);
+        float den = 0.14285714285714285f/(sd+0.00000001f);
+        sd = 1.0f/(sd+n_zero);
+        for(int i = 8 ; i < 15; i++){
+            units[i] = dldz*n.weights[8][i-8];
+            gradients.weights[8][i-8] += dldz*past_unit[i];
+            gradients.alpha[i] += units[i] * pacts[i];
+            units[i] += units[i]*n.alpha[i]*dact_func(pacts[i],af);
+            gradients.bias[i] += units[i];
+            #pragma omp simd
+            for (int j = 0; j < 7; j++)
+            {
+                units[j+1] += units[i] * n.weights[i-7][j];
+                gradients.weights[i-7][j] += units[i]*past_unit[j+1];
+            }
+        }
+        units[8] = 0;
+        units[9] = 0;
+        units[10] = 0;
+        units[11] = 0;
+        units[12] = 0;
+        units[13] = 0;
+        units[14] = 0;
+        #pragma omp simd collapse(2)
+        for (int i = 1; i < 8; i++)
+        {
+            float component = (past_unit[i]-mean) * sd * sd * den;            
+            for (int j = 8; j < 15; j++)
+            {
+                units[j] += units[i] * (sd * ((i==(j-7))-0.14285714285714285f) - component * (past_unit[j-7]-mean));
+            }
+        }
+        #pragma omp simd
+        for (int i = 1; i < 8; i++)
+        {
+            gradients.alpha[i] += units[i+7] * pacts[i];
+            units[i+7] += units[i+7]*(n.alpha[i]*dact_func(pacts[i],af));
+            gradients.bias[i] += units[i+7];
+            units[0] += units[i+7] * n.weights[0][i-1];
+        }
+        gradients.alpha[0] += units[0] * pacts[0];
+        units[0] += units[0] * n.alpha[0] * dact_func(pacts[0],af);
+        gradients.bias[0] += units[0];
+        return units[0];
+    }    
+
+    inline float backpropagation(neuron_unit &n, float dldz, std::array<float,16> &past_unit, std::array<float,16> &pacts, neuron_gradients &gradients,float &tm1grad){
         sine_neuron s;
         log_relu_neuron l;
         relu_neuron r;
         memory_neuron m;
-        switch (nu.a_f)
+        sin_memory_neuron si;
+        layernorm_tag lt;
+        switch (n.a_f)
         {
         case 1:
-            return backprop(nu,dldz, past_unit, pacts, gradients, s);
+            return backprop(n,dldz, past_unit, pacts, gradients, s);
         case 2:
-            return backprop(nu,dldz, past_unit, pacts, gradients, l);
+            return backprop(n,dldz, past_unit, pacts, gradients, l);
         case 3:
-            return backprop(nu,dldz,past_unit, pacts,gradients, m,tm1grad);
+            return backprop(n,dldz,past_unit, pacts,gradients, m,tm1grad);
+        case 4:
+            return backprop(n,dldz,past_unit, pacts,gradients, si,tm1grad);   
+        case 5:
+            return backprop(n,dldz,past_unit, pacts,gradients, r);   
         default:
-            return backprop(nu,dldz, past_unit, pacts, gradients, r);
+            return backprop(n,dldz, past_unit, pacts, gradients, r, lt);
+            //return backprop(dldz,past_unit, pacts,gradients, r);   
         }
     }
 };
@@ -986,7 +1405,7 @@ struct vec_of_arr
         vec.resize(a*arr_size);
         for (int i = b; i < a-b; i++)
         {
-            vec[i] = 0;
+            memset(vec[i],0,sizeof(vec[i]));
         }
     }
 };
@@ -997,7 +1416,6 @@ struct int_float
     float y;
     inline int_float(int a, float b){x=a;y=b;}
 };
-
 
 struct NN
 {
@@ -1016,6 +1434,7 @@ struct NN
             for (int i = 0; i < nn.neural_net.size(); i++)
             {
                 weight_gradients[i].resize(nn.weights[i].size());
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] = 0;
@@ -1026,6 +1445,7 @@ struct NN
             for (int i = 0; i < nn.neural_net.size(); i++)
             {
                 weight_gradients[i].resize(nn.weights[i].size());
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] = 0;
@@ -1050,22 +1470,25 @@ struct NN
         }
 
         //neuron &n, float learning_rate, float momentum, neuron_gradients current_grad
-        inline void sgd_with_momentum(NN &n, float learning_rate, float momentum, network_gradient &current_gradient){
-            #pragma omp parallel for schedule(static)
+        inline void sgd_with_momentum(NN &n, float learning_rate, float beta, network_gradient &current_gradient, float iter_bias_correction=-1){
+            //#pragma omp parallel for schedule(static)
+            iter_bias_correction = (iter_bias_correction>=0) ? (1.0f/(1.0f-std::pow(beta,iter_bias_correction+1))):1.0f;
+            float ombeta  = 1-beta;
             for (int i = 0; i < n.neural_net.size(); i++)
             {
-                net_grads[i].sgd_with_momentum(n.neural_net[i],learning_rate,momentum,current_gradient.net_grads[i]);
+                net_grads[i].sgd_with_momentum(n.neural_net[i],learning_rate,beta,current_gradient.net_grads[i],iter_bias_correction);
             }
-            #pragma omp parallel for schedule(static)
+            learning_rate *= (-iter_bias_correction);
+            //#pragma omp parallel for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
                 #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
-                    weight_gradients[i][j] *= momentum;
-                    current_gradient.weight_gradients[i][j] *= learning_rate;
-                    weight_gradients[i][j] += current_gradient.weight_gradients[i][j];
-                    n.weights[i][j].y -= weight_gradients[i][j];
+                    weight_gradients[i][j] *= beta;
+                    weight_gradients[i][j] += current_gradient.weight_gradients[i][j]* ombeta;
+                    n.weights[i][j].y += weight_gradients[i][j]*learning_rate;
+                    current_gradient.weight_gradients[i][j] = 0;
                 }   
             }
         }
@@ -1084,6 +1507,7 @@ struct NN
                 {
                     net_grads[i].alpha[j] = std::tanh(net_grads[i].alpha[j]);
                 }
+                #pragma omp simd collapse(2)
                 for (int j = 0; j < 9; j++)
                 {
                     for (int k = 0; k < 7; k++)
@@ -1094,6 +1518,7 @@ struct NN
             }
             for (int i = 0; i < weight_gradients.size(); i++)
             {
+                #pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
                     weight_gradients[i][j] = std::tanh(weight_gradients[i][j]);
@@ -1200,26 +1625,26 @@ struct NN
         }
 
         inline void norm_clip(float max){
-            float gradient_l2_norm = 0;
+            double gradient_l2_norm = 0;
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < net_grads.size(); i++)
             {
                 #pragma omp simd
                 for (int j = 0; j < 16; j++)
                 {
-                    gradient_l2_norm+= net_grads[i].bias[j]*net_grads[i].bias[j];
+                    gradient_l2_norm += net_grads[i].bias[j]*net_grads[i].bias[j];
                 }
                 #pragma omp simd
                 for (int j = 0; j < 16; j++)
                 {
-                    gradient_l2_norm+= net_grads[i].alpha[j] * net_grads[i].alpha[j];
+                    gradient_l2_norm += net_grads[i].alpha[j] * net_grads[i].alpha[j];
                 }
                 #pragma omp simd collapse(2)
                 for (int j = 0; j < 9; j++)
                 {
                     for (int k = 0; k < 7; k++)
                     {
-                        gradient_l2_norm+=net_grads[i].weights[j][k]*net_grads[i].weights[j][k];
+                        gradient_l2_norm +=net_grads[i].weights[j][k]*net_grads[i].weights[j][k];
                     }   
                 }
             }
@@ -1233,11 +1658,21 @@ struct NN
                 }
             }
             gradient_l2_norm = std::sqrt(gradient_l2_norm);
-
+            /*
+            std::cout<<std::endl;
+            std::cout<<"gradient norm"<<gradient_l2_norm<<std::endl;
+            std::cout<<std::endl;*/
+            if (std::isnan(gradient_l2_norm))
+            {
+                std::cout<<"error, nan gradient norm"<<std::endl;
+                std::exit(0);
+            }
+            
             if (gradient_l2_norm < max)
             {
                 return;
             }
+
             gradient_l2_norm = (max/gradient_l2_norm);
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < net_grads.size(); i++)
@@ -1326,7 +1761,7 @@ struct NN
             for(int j = 1; j < weights[i].size();j++){
                 int_float p = weights[i][j];
                 int k = j - 1;
-                while( (k >= 0)&&(weights[i][k-1].x > p.x))
+                while( (k >= 0)&&(weights[i][k].x > p.x))
                 {
                     weights[i][k+1] = weights[i][k];
                     k--;
@@ -1335,8 +1770,8 @@ struct NN
             }
         }
     }
+
     void layermap_sync(){
-        weight_index_sort();
         layermap.clear();
         depth.clear();
         depth.reserve(neural_net.size());
@@ -1345,6 +1780,7 @@ struct NN
         layermap.reserve(neural_net.size());
         layermap.resize(1,{});
         layermap[0].reserve(input_index.size());
+        weight_index_sort();
         for (int i = 0; i < input_index.size(); i++)
         {
             layermap[0].emplace_back(input_index[i]);
@@ -1369,10 +1805,9 @@ struct NN
             }
             layermap[depth[i]].emplace_back(i);
         }
-        layermap.shrink_to_fit();
     } 
     
-    NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd)
+    NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int l_size = 1)
     :neural_net(size,neuron_unit())
     ,input_index(input_neurons)
     ,output_index(output_neurons)
@@ -1397,11 +1832,15 @@ struct NN
             {
                 density = 1.0f;
             }
-            int connect_n =  std::floor(density * (size - 1));          //this is the number of input connections
+            int connect_n =  std::floor(density * (i));          //this is the number of input connections
             std::set<int> input_i = {};
             for (int j = 0; j < connect_n; j++)
             {
-                int remaining = size - 1 - weights[i].size();
+                int remaining = i - l_size + 1- weights[i].size();
+                if (remaining < 1)
+                {
+                    break;
+                }
                 int input_neuron_index = std::floor((remaining) * (custom_dist() - 0.5));
                 int wrap_around  = (input_neuron_index < 0) * (remaining + input_neuron_index);
                 wrap_around = (wrap_around > input_neuron_index) ? wrap_around:input_neuron_index;
@@ -1410,28 +1849,26 @@ struct NN
                 bool gapped = true;
                 for(int k = 0; k < weights[i].size(); k++)
                 {
-                    if ((input_neuron_index >= i) && gapped)
-                    {
-                        gapped = false;
-                        input_neuron_index++;
-                    }
                     if (input_neuron_index >= weights[i][k].x)
                     {
                         input_neuron_index++;
                         pos++;
                         continue;
                     }
-                    if ((input_neuron_index >= i) && gapped)
-                    {
-                        gapped = false;
-                        input_neuron_index++;
-                        continue;
-                    }
                     break;
                 }
                 if ((input_neuron_index >= i) && gapped)
                 {
-                    input_neuron_index++;
+                    input_neuron_index = input_neuron_index % i;
+                }
+                for(int k = 0; k < weights[i].size(); k++)
+                {
+                    if (input_neuron_index == weights[i][k].x)
+                    {
+                        std::cout<<"error!!!!! check initialisation function"<<std::endl;
+                        continue;
+                    }
+                    break;
                 }
                 weights[i].insert(weights[i].begin() + pos,int_float(input_neuron_index,0.0f));    
             }
@@ -1441,12 +1878,6 @@ struct NN
         {   //not really the correct way to use He initialisation but eh
             float input_layer_size = weights[i].size();
             int recurrent_connections = 0;
-            #pragma omp simd
-            for (int j = 0; j < input_layer_size; j++)
-            {
-                recurrent_connections += (weights[i][j].x > i);
-            }
-            //input_layer_size -= recurrent_connections;
             //Xavier initialisation
             std::uniform_real_distribution<float> weight_init_dist(-std::sqrt(1/(input_layer_size)),std::sqrt(1/(input_layer_size)));
             for(int j = 0; j < input_layer_size; j++)
@@ -1525,6 +1956,7 @@ struct NN
         record_state(post);
     }
 
+    /*
     inline void sforwardpass(std::vector<float> &inputs){
         #pragma omp simd
         for (int i = 0; i < input_index.size(); i++)
@@ -1546,7 +1978,7 @@ struct NN
                 neural_net[layermap[i][j]].forward_pass();
             }
         }
-    }
+    }*/
     
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
     template<typename T>
@@ -1648,7 +2080,7 @@ struct NN
     //back propagation through time, passing arguement gradients to avoid memorry allocation
     inline void bptt(vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
         std::fill(gradients.vec.begin(),gradients.vec.end(),0);
-        #pragma omp simd
+        #pragma omp simd collapse(2)
         for (int i = 0; i < dloss.vec_size; i++)
         {
             for (int j = 0; j < dloss.arr_size; j++)
@@ -1932,7 +2364,7 @@ struct NN
     }
 
     // returns true if inputs can appect every output of current timestep
-    // flase otherwise
+    // false otherwise
     bool connection_check(){
         std::vector<int> checker(neural_net.size(),0);
         for (int i = 0; i < input_index.size(); i++)
@@ -1992,6 +2424,7 @@ struct NN
         }
     };
 
+    // returns number of trainable parameters
     int parameter_count(){
         int count = 0;
         #pragma omp simd
@@ -2212,7 +2645,6 @@ struct NN
             }
         }
     };
-
     //L2 regression for the recurrent weights, as a coutermeasure to keep gradients under control
     void rec_l2_reg(float lambda){
         weight_index_sort();
