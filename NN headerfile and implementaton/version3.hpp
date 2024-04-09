@@ -1507,13 +1507,13 @@ struct NN
             iter_bias_correction = (iter_bias_correction > 60) ? -1:iter_bias_correction;
             iter_bias_correction = (iter_bias_correction>=0) ? (1.0f/(1.0f-std::pow(beta,iter_bias_correction+1))):1.0f;
             float ombeta  = 1-beta;
-            //#pragma omp parallel for schedule(static)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < n.neural_net.size(); i++)
             {
                 net_grads[i].sgd_with_momentum(n.neural_net[i],learning_rate,beta,current_gradient.net_grads[i],iter_bias_correction);
             }
             learning_rate *= (-iter_bias_correction);
-            //#pragma omp parallel for schedule(static)
+            #pragma omp parallel for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
                 #pragma omp simd
@@ -1658,7 +1658,7 @@ struct NN
             }
         }
 
-        inline void norm_clip(float max){
+        inline float global_norm_clip(float max){
             double gradient_l2_norm = 0;
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < net_grads.size(); i++)
@@ -1700,10 +1700,16 @@ struct NN
             {
                 std::cout<<"error, nan gradient norm"<<std::endl;
                 std::exit(0);
-            }    
+            }  
+            /*
+            #pragma omp critical
+            {
+                std::cout<<gradient_l2_norm<<std::endl;
+            }*/
+            float f = gradient_l2_norm;
             if (gradient_l2_norm < max)
             {
-                return;
+                return f;
             }
 
             gradient_l2_norm = (max/gradient_l2_norm);
@@ -1738,6 +1744,7 @@ struct NN
                     weight_gradients[i][j] *= gradient_l2_norm;
                 }
             }
+            return f;
         }
 
         inline void condense(std::vector<network_gradient> & multi_grad){
@@ -1780,17 +1787,150 @@ struct NN
                     
             }
         }
-    };
+        inline void component_norm_clip(float neuron_unit_max, float weight_max){
+            double gradient_l2_norm = 0;
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < net_grads.size(); i++)
+            {
+                gradient_l2_norm = 0;
+                #pragma omp simd
+                for (int j = 0; j < 16; j++)
+                {
+                    gradient_l2_norm += net_grads[i].bias[j]*net_grads[i].bias[j];
+                }
+                #pragma omp simd
+                for (int j = 0; j < 16; j++)
+                {
+                    gradient_l2_norm += net_grads[i].alpha[j] * net_grads[i].alpha[j];
+                }
+                #pragma omp simd collapse(2)
+                for (int j = 0; j < 9; j++)
+                {
+                    for (int k = 0; k < 7; k++)
+                    {
+                        gradient_l2_norm +=net_grads[i].weights[j][k]*net_grads[i].weights[j][k];
+                    }   
+                }
+                gradient_l2_norm = std::sqrt(gradient_l2_norm);
+                if(gradient_l2_norm < neuron_unit_max){
+                    continue;
+                }
+                gradient_l2_norm = (neuron_unit_max/gradient_l2_norm);
+                #pragma omp simd
+                for (int j = 0; j < 16; j++)
+                {
+                    net_grads[i].bias[j] *= gradient_l2_norm;
+                }
+                #pragma omp simd
+                for (int j = 0; j < 16; j++)
+                {
+                    net_grads[i].alpha[j] *= gradient_l2_norm;
+                }
+                #pragma omp simd collapse(2)
+                for (int j = 0; j < 9; j++)
+                {
+                    for (int k = 0; k < 7; k++)
+                    {
+                    net_grads[i].weights[j][k] *= gradient_l2_norm;
+                    }   
+                }
+            }
+            #pragma omp parallel for schedule(static)
+            for (int i = 0; i < weight_gradients.size(); i++)
+            {
+                gradient_l2_norm = 0;
+                #pragma omp simd
+                for (int j = 0; j < weight_gradients[i].size(); j++)
+                {
+                    gradient_l2_norm+=weight_gradients[i][j]*weight_gradients[i][j];
+                }
+                gradient_l2_norm = std::sqrt(gradient_l2_norm);
+                if(gradient_l2_norm<weight_max){
+                    continue;
+                }
+                gradient_l2_norm = (weight_max/gradient_l2_norm);
+                #pragma omp simd
+                for (int j = 0; j < weight_gradients[i].size(); j++)
+                {
+                    weight_gradients[i][j]*=gradient_l2_norm;
+                }
+            }            
+        }
 
+    };
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<std::vector<int>> layermap;
     std::vector<int> depth;                    // for layermap purposes
 
+    vec_of_arr<int> recurrent_connection;      // taking inspiration from attention the reccurent weights will be the output of a softmax function
+    // though it will be a simple 1 weight to 1 recurrent output
+
+    void set_recurrent_c(std::vector<int> weight_index, std::vector<int> recurrent_in, std::vector<int> recurrent_to){
+        if((weight_index.size()==recurrent_in.size())&&(recurrent_in.size()==recurrent_to.size())){
+            recurrent_connection.arr_size=recurrent_in.size();
+            recurrent_connection.vec.resize(3*recurrent_connection.arr_size);
+            for(int i = 0; i < recurrent_connection.arr_size; i++){
+                recurrent_connection(0,i) = weight_index[i];
+            }
+            for(int i = 0; i < recurrent_connection.arr_size; i++){
+                recurrent_connection(1,i) = recurrent_in[i];
+            }
+            for(int i = 0; i < recurrent_connection.arr_size; i++){
+                recurrent_connection(2,i) = recurrent_to[i];
+                neural_net[recurrent_to[i]].isinput=1;
+            }
+        }
+        else{
+            std::cout<<"ERROR different length vectors passed to set_recurrent_c()"<<std::endl;
+            std::exit(0);
+        }
+    }
+    inline void connect_recurrent(vec_of_arr<float> & states, int tstep){
+        if(recurrent_connection.vec.size()==0){
+            return;
+        }
+        std::vector<float> softmax_out(recurrent_connection.arr_size);
+        #pragma omp simd
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
+        } 
+        soft_max(softmax_out);
+        #pragma omp for
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*softmax_out[i];
+        }
+    }
+
+    inline void drecurrent_connect(int tstep, vec_of_arr<float> &gradients, vec_of_arr<float> &states){
+        if(recurrent_connection.vec.size()==0){
+            return;
+        }
+        std::vector<float> softmax_out(recurrent_connection.arr_size);
+        #pragma omp simd
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
+        } 
+        soft_max(softmax_out);
+        #pragma omp for
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * softmax_out[i];
+        }
+        #pragma omp for
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            float dsjdzi=0;
+            #pragma omp simd
+            for(int j = 0 ; j < recurrent_connection.arr_size;j++){
+                dsjdzi += softmax_out[j] * ((i==j)-softmax_out[i]);
+            }
+            gradients(tstep-1,recurrent_connection(0,i)) += gradients(tstep,recurrent_connection(2,i)) * dsjdzi;
+        }
+    }
+
     // sort asecending by index, should always be almost sorted at least thus use insertion sort
     void weight_index_sort(){
         //this layer of parallelization should be enough
-        //#pragma omp parallel for
+        #pragma omp parallel for
         for (int i = 0; i < weights.size(); i++)
         {
             for(int j = 1; j < weights[i].size();j++){
@@ -1841,11 +1981,12 @@ struct NN
         }
     } 
     
-    NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int l_size = 1)
+    NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int min_layer_size = 1, int connection_radius = -1)
     :neural_net(size,neuron_unit())
     ,input_index(input_neurons)
     ,output_index(output_neurons)
     ,weights(size)
+    ,recurrent_connection(3,0)
     {
         std::normal_distribution<float> connection_dist(connection_density, connection_sd);
         for (int i = 0; i < input_index.size(); i++)
@@ -1868,9 +2009,11 @@ struct NN
             }
             int connect_n =  std::floor(density * (i));          //this is the number of input connections
             std::set<int> input_i = {};
+            const int crad = connection_radius;
             for (int j = 0; j < connect_n; j++)
             {
-                int remaining = i - l_size + 1- weights[i].size();
+                connection_radius = ((crad>0)&&(crad<i)) ? crad:i;
+                int remaining = connection_radius - min_layer_size + 1- weights[i].size();
                 if (remaining < 1)
                 {
                     break;
@@ -1878,9 +2021,8 @@ struct NN
                 int input_neuron_index = std::floor((remaining) * (custom_dist() - 0.5));
                 int wrap_around  = (input_neuron_index < 0) * (remaining + input_neuron_index);
                 wrap_around = (wrap_around > input_neuron_index) ? wrap_around:input_neuron_index;
-                input_neuron_index = (wrap_around % (remaining));
+                input_neuron_index = (wrap_around % (remaining)) + (i-connection_radius);
                 int pos = 0;
-                bool gapped = true;
                 for(int k = 0; k < weights[i].size(); k++)
                 {
                     if (input_neuron_index >= weights[i][k].x)
@@ -1891,18 +2033,9 @@ struct NN
                     }
                     break;
                 }
-                if ((input_neuron_index >= i) && gapped)
+                if (((input_neuron_index-(i - connection_radius))  >= connection_radius))
                 {
-                    input_neuron_index = input_neuron_index % i;
-                }
-                for(int k = 0; k < weights[i].size(); k++)
-                {
-                    if (input_neuron_index == weights[i][k].x)
-                    {
-                        std::cout<<"error!!!!! check initialisation function"<<std::endl;
-                        continue;
-                    }
-                    break;
+                    input_neuron_index = ((input_neuron_index-(i - connection_radius)) % connection_radius) + (i - connection_radius);
                 }
                 weights[i].insert(weights[i].begin() + pos,int_float(input_neuron_index,0.0f));    
             }
@@ -1979,11 +2112,12 @@ struct NN
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
     template<typename T>
     inline void forward_pass(T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
-        #pragma omp simd
+        #pragma omp for
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
         }
+        reccurent_connenct(vec_of_arr<float> & states, int tstep)
         switch (tstep)
         {
             case 0:
@@ -2028,11 +2162,12 @@ struct NN
 
     template<typename T>
     inline void forward_pass(T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
-        #pragma omp simd
+        #pragma omp for
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
         }
+        reccurent_connenct(vec_of_arr<float> & states, int tstep);
         switch (tstep)
         {
             case 0:
@@ -2164,7 +2299,7 @@ struct NN
             for (int j = 0; j < weights[i].size(); j++)
             {
                 file << weights[i][j].x << " ";
-                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                file << std::hexfloat
                 << weights[i][j].y << "\n";
             }
             file << "---------" << "\n";
@@ -2176,7 +2311,7 @@ struct NN
             file << "<bias>" << "\n";
             for (int j = 0; j < 16; j++)
             {
-                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                file << std::hexfloat
                 << neural_net[i].bias[j] << "\n";
             }
             file << "</bias>" << "\n";
@@ -2184,7 +2319,7 @@ struct NN
             file << "<alpha>" << "\n";
             for (int j = 0; j < 16; j++)
             {
-                file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                file << std::hexfloat
                 << neural_net[i].alpha[j] << "\n";
             }
             file << "</alpha>" << "\n";
@@ -2196,7 +2331,7 @@ struct NN
             {
                 for (int k = 0; k < 7; k++)
                 {
-                    file << std::fixed<<std::setprecision(std::numeric_limits<float>::max_digits10)
+                    file << std::hexfloat
                     << neural_net[i].weights[j][k] << "\n";
                 }
                 
@@ -2453,7 +2588,7 @@ struct NN
         // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
         template<typename T>
         inline void forward_pass(NN & nn,T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
-            #pragma omp simd
+            #pragma omp for
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2501,7 +2636,7 @@ struct NN
         }
         template<typename T>
         inline void forward_pass(NN &nn,T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
-            #pragma omp simd
+            #pragma omp for
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2597,26 +2732,72 @@ struct NN
             }
         }
     };
-    //L2 regression for the recurrent weights, as a coutermeasure to keep gradients under control
-    void rec_l2_reg(float lambda){
-        weight_index_sort();
-        lambda = 1.0f-lambda;
-        #pragma omp simd
-        for (int i = 0; i < weights.size(); i++)
+    void new_weights(int m_new_weights, int connection_radius = -1){
+        std::uniform_int_distribution<int> dist_to(0, neural_net.size() -1); 
+        //float multiplier = 1/std::sqrt(layermap.size()) * 0.5;
+        int* new_weights = new int[neural_net.size()];
+        int* new_weights_limit = new int[neural_net.size()];
+        long long total_available_weights = 0;
+        for (int i = 0; i < neural_net.size(); i++)
         {
-            for (int j = weights[i].size()-1; j >= 0; j--)
+            new_weights[i] = 0;
+        }
+        for (int i = 0; i < neural_net.size(); i++)
+        {
+            int remain = ((connection_radius>0)&&(connection_radius<i)) ? connection_radius:i;
+            new_weights_limit[i] = remain - weights[i].size();
+            total_available_weights += new_weights_limit[i];
+        }
+        if (m_new_weights > total_available_weights)
+        {
+            m_new_weights = total_available_weights;
+        }
+        for (int i = 0; i < m_new_weights; i++)
+        {
+            int index_to = dist_to(ttttt);
+            if (neural_net[index_to].isinput || (new_weights[index_to] == new_weights_limit[index_to]))
             {
-                if (weights[i][j].x < i)
-                {
-                    break;
-                }
-                weights[i][j].y *= lambda;  
+                i--;   
+            }
+            else{
+                new_weights[index_to]++;
             }
         }
+        weight_index_sort();
+        #pragma omp parallel for
+        for (int i = 0; i < neural_net.size(); i++)
+        {
+            weights[i].reserve(weights[i].size() + new_weights[i]);
+            int remain = ((connection_radius>0)&&(connection_radius<i)) ? connection_radius:i;
+            for (int j = 0; j < new_weights[i]; j++)
+            {
+                int index_from = std::floor(zero_to_one(ttttt) * (remain - 1 -weights[i].size()));      //indexing starts at 0
+                index_from += (i - remain);
+                int pos = 0;
+                for(int k = 0; k < weights[i].size(); k++)
+                {
+                    if (index_from >= weights[i][k].x)
+                    {
+                        index_from++;
+                        pos++;
+                        continue;
+                    }
+                    break;
+                }
+                if (((index_from-(i - remain)) >= remain))
+                {
+                    index_from = ((index_from-(i - remain)) % remain) + (i - remain);
+                }
+                weights[i].insert(weights[i].begin() + pos,int_float(index_from,0));
+            }
+        }
+        delete[] new_weights;
+        delete[] new_weights_limit;
+        layermap_sync();
     }
 };
 
 
-// cyclical buffer for attention QKV
+// higher order weights from output to input ??? or a specific set of neurons
 
 
