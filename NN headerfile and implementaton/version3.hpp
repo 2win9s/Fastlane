@@ -1896,7 +1896,6 @@ struct NN
             softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
         } 
         soft_max(softmax_out);
-        #pragma omp for
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*softmax_out[i];
         }
@@ -1912,11 +1911,9 @@ struct NN
             softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
         } 
         soft_max(softmax_out);
-        #pragma omp for
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * softmax_out[i];
         }
-        #pragma omp for
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             float dsjdzi=0;
             #pragma omp simd
@@ -2112,7 +2109,6 @@ struct NN
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
     template<typename T>
     inline void forward_pass(T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
-        #pragma omp for
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -2162,7 +2158,6 @@ struct NN
 
     template<typename T>
     inline void forward_pass(T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
-        #pragma omp for
         for (int i = 0; i < input_index.size(); i++)
         {
             neural_net[input_index[i]].units[0] = inputs[i];
@@ -2588,7 +2583,6 @@ struct NN
         // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
         template<typename T>
         inline void forward_pass(NN & nn,T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
-            #pragma omp for
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
@@ -2636,7 +2630,6 @@ struct NN
         }
         template<typename T>
         inline void forward_pass(NN &nn,T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
-            #pragma omp for
             for (int i = 0; i < nn.input_index.size(); i++)
             {
                 neural_net[nn.input_index[i]].units[0] = inputs[i];
