@@ -2113,7 +2113,6 @@ struct NN
         {
             neural_net[input_index[i]].units[0] = inputs[i];
         }
-        reccurent_connenct(vec_of_arr<float> & states, int tstep)
         switch (tstep)
         {
             case 0:
@@ -2136,6 +2135,7 @@ struct NN
                 return;
             
             default:
+                connect_recurrent(states,tstep);
                 for (int i = 0; i < layermap.size(); i++)
                 {
                     for (int j = 0; j < layermap[i].size(); j++)
@@ -2162,7 +2162,6 @@ struct NN
         {
             neural_net[input_index[i]].units[0] = inputs[i];
         }
-        reccurent_connenct(vec_of_arr<float> & states, int tstep);
         switch (tstep)
         {
             case 0:
@@ -2184,6 +2183,7 @@ struct NN
                 return;
             
             default:
+                connect_recurrent(states,tstep);
                 for (int i = 0; i < layermap.size(); i++)
                 {
                     for (int j = 0; j < layermap[i].size(); j++)
@@ -2206,7 +2206,6 @@ struct NN
     //back propagation through time, passing arguement gradients to avoid memorry allocation
     inline void bptt(vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
         std::fill(gradients.vec.begin(),gradients.vec.end(),0);
-        #pragma omp simd collapse(2)
         for (int i = 0; i < dloss.vec_size; i++)
         {
             for (int j = 0; j < dloss.arr_size; j++)
@@ -2231,6 +2230,7 @@ struct NN
                     }   
                 }   
             }
+            drecurrent_connect(i,gradients, states);
         }
         for (int j = layermap.size() - 1; j >= 0; j--)
         {
@@ -2286,6 +2286,22 @@ struct NN
             }
         }
         file << "</layermap>" <<"\n";
+        file << "<recurrent_connection>"<<"\n";
+        file << "no_of_connections"<<"\n";
+        file << recurrent_connection.arr_size<<"\n";
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            file << recurrent_connection(0,i) << " ";
+        }
+        file << "\n";
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            file << recurrent_connection(1,i) << " ";
+        }
+        file << "\n";
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            file << recurrent_connection(2,i) << " ";
+        }
+        file << "\n";
+        file << "</recurrent_connection>" <<"\n";
         file << "<weights>" << "\n";
         for (int i = 0; i < neural_net.size(); i++)
         {
@@ -2405,6 +2421,30 @@ struct NN
                 layermap[itr].emplace_back(std::stoi(data));
             }
         }
+        file >> str_data;
+        file >> str_data;
+        file >> str_data;
+        int rec_arrs = std::stoi(str_data);
+        recurrent_connection.arr_size = rec_arrs;
+        recurrent_connection.vec_size = 3;
+        recurrent_connection.vec.resize(rec_arrs*3);
+        for(int i=0;i<rec_arrs;i++){
+            std::string data;
+            file >> data;
+            recurrent_connection(0,i)=std::stoi(data);
+        }
+        for(int i=0;i<rec_arrs;i++){
+            std::string data;
+            file >> data;
+            recurrent_connection(1,i)=std::stoi(data);
+        }
+        for(int i=0;i<rec_arrs;i++){
+            std::string data;
+            file >> data;
+            recurrent_connection(2,i)=std::stoi(data);
+            neural_net[recurrent_connection(2,i)].isinput=1;
+        }
+        file >> str_data;
         file >> str_data;
         itr = 0;
         while (true)
@@ -2579,7 +2619,42 @@ struct NN
                 }   
             }
         }
-
+        inline void connect_recurrent(NN &n,vec_of_arr<float> & states, int tstep){
+            if(n.recurrent_connection.vec.size()==0){
+                return;
+            }
+            std::vector<float> softmax_out(n.recurrent_connection.arr_size);
+            #pragma omp simd
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                softmax_out[i] = states(tstep-1,n.recurrent_connection(0,i));
+            } 
+            soft_max(softmax_out);
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                neural_net[n.recurrent_connection(2,i)].units[15]=states(tstep-1,n.recurrent_connection(1,i))*softmax_out[i];
+            }
+        }
+        inline void drecurrent_connect(NN &n,int tstep, vec_of_arr<float> &gradients, vec_of_arr<float> &states){
+            if(n.recurrent_connection.vec.size()==0){
+                return;
+            }
+            std::vector<float> softmax_out(n.recurrent_connection.arr_size);
+            #pragma omp simd
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                softmax_out[i] = states(tstep-1,n.recurrent_connection(0,i));
+            } 
+            soft_max(softmax_out);
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                gradients(tstep-1,n.recurrent_connection(1,i)) += gradients(tstep,n.recurrent_connection(2,i)) * softmax_out[i];
+            }
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                float dsjdzi=0;
+                #pragma omp simd
+                for(int j = 0 ; j < n.recurrent_connection.arr_size;j++){
+                    dsjdzi += softmax_out[j] * ((i==j)-softmax_out[i]);
+                }
+                gradients(tstep-1,n.recurrent_connection(0,i)) += gradients(tstep,n.recurrent_connection(2,i)) * dsjdzi;
+            }
+        }
         // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
         template<typename T>
         inline void forward_pass(NN & nn,T &inputs, state &pre, state &post, vec_of_arr<float> & states, int tstep){
@@ -2609,6 +2684,7 @@ struct NN
                     return;
                 
                 default:
+                    connect_recurrent(nn,states,tstep);
                     for (int i = 0; i < nn.layermap.size(); i++)
                     {
                         for (int j = 0; j < nn.layermap[i].size(); j++)
@@ -2677,7 +2753,6 @@ struct NN
         //back propagation through time, passing arguement gradients to avoid memorry allocation
         inline void bptt(NN &nn,vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
             std::fill(gradients.vec.begin(),gradients.vec.end(),0);
-            #pragma omp simd collapse(2)
             for (int i = 0; i < dloss.vec_size; i++)
             {
                 for (int j = 0; j < dloss.arr_size; j++)
@@ -2702,6 +2777,7 @@ struct NN
                         }   
                     }   
                 }
+                drecurrent_connect(nn,i,gradients, states);
             }
             for (int j = nn.layermap.size() - 1; j >= 0; j--)
             {
