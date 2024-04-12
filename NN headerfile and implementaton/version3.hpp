@@ -1863,15 +1863,15 @@ struct NN
     std::vector<std::vector<int>> layermap;
     std::vector<int> depth;                    // for layermap purposes
 
-    vec_of_arr<int> recurrent_connection;      // taking inspiration from attention the reccurent weights will be the output of a softmax function
-    // though it will be a simple 1 weight to 1 recurrent output
+    vec_of_arr<int> recurrent_connection;      // taking inspiration from attention the reccurent weights will be generated on the fly
 
-    void set_recurrent_c(std::vector<int> weight_index, std::vector<int> recurrent_in, std::vector<int> recurrent_to){
+    void set_recurrent_c(std::vector<int> & weight_index, std::vector<int> & recurrent_in, std::vector<int> & recurrent_to){
         if((weight_index.size()==recurrent_in.size())&&(recurrent_in.size()==recurrent_to.size())){
             recurrent_connection.arr_size=recurrent_in.size();
             recurrent_connection.vec.resize(3*recurrent_connection.arr_size);
             for(int i = 0; i < recurrent_connection.arr_size; i++){
                 recurrent_connection(0,i) = weight_index[i];
+                //std::cout<<recurrent_connection(0,i)<<"|"<<weight_index[i]<<std::endl;
             }
             for(int i = 0; i < recurrent_connection.arr_size; i++){
                 recurrent_connection(1,i) = recurrent_in[i];
@@ -1890,14 +1890,12 @@ struct NN
         if(recurrent_connection.vec.size()==0){
             return;
         }
-        std::vector<float> softmax_out(recurrent_connection.arr_size);
-        #pragma omp simd
+        std::vector<float> rweights(recurrent_connection.arr_size);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
+            rweights[i] = sigmoid(states(tstep-1,recurrent_connection(0,i)));
         } 
-        soft_max(softmax_out);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*softmax_out[i];
+            neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*rweights[i];
         }
     }
 
@@ -1905,22 +1903,18 @@ struct NN
         if(recurrent_connection.vec.size()==0){
             return;
         }
-        std::vector<float> softmax_out(recurrent_connection.arr_size);
-        #pragma omp simd
+        std::vector<float> rweights(recurrent_connection.arr_size);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            softmax_out[i] = states(tstep-1,recurrent_connection(0,i));
+            rweights[i] = sigmoid(states(tstep-1,recurrent_connection(0,i)));
         } 
-        soft_max(softmax_out);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * softmax_out[i];
+            gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i];
         }
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            float dsjdzi=0;
-            #pragma omp simd
-            for(int j = 0 ; j < recurrent_connection.arr_size;j++){
-                dsjdzi += softmax_out[j] * ((i==j)-softmax_out[i]);
-            }
-            gradients(tstep-1,recurrent_connection(0,i)) += gradients(tstep,recurrent_connection(2,i)) * dsjdzi;
+            rweights[i] *= 1.0f-rweights[i];
+        } 
+        for(int i = 0; i < recurrent_connection.arr_size;i++){
+            gradients(tstep-1,recurrent_connection(0,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i];
         }
     }
 
@@ -1990,6 +1984,7 @@ struct NN
         {
             neural_net[input_index[i]].isinput = 1;
         }
+        const int crad = connection_radius;
         for (int i = 0; i < size; i++)
         {
             if (neural_net[i].isinput)
@@ -2006,11 +2001,10 @@ struct NN
             }
             int connect_n =  std::floor(density * (i));          //this is the number of input connections
             std::set<int> input_i = {};
-            const int crad = connection_radius;
             for (int j = 0; j < connect_n; j++)
             {
                 connection_radius = ((crad>0)&&(crad<i)) ? crad:i;
-                int remaining = connection_radius - min_layer_size + 1- weights[i].size();
+                int remaining = connection_radius - min_layer_size - weights[i].size();
                 if (remaining < 1)
                 {
                     break;
@@ -2038,7 +2032,6 @@ struct NN
             }
         }
         layermap_sync();
-
         // using this now to store other information will clear at the end
         depth.reserve(neural_net.size());
         depth.resize(neural_net.size());
@@ -2060,7 +2053,8 @@ struct NN
                     //weights[i][j].y = 0; /*this seems to stop gradient explosion*/
                 //}
                 //else{
-                std::normal_distribution<float> weight_init_dist(0,std::sqrt(2.0f/(input_layer_size + depth[weights[i][j].x])));
+                flout Xavier_init = std::sqrt(6.0f/(input_layer_size + depth[weights[i][j].x]));
+                std::uniform_real_distribution<float> weight_init_dist(-Xavier_init,Xavier_init);
                 weights[i][j].y = weight_init_dist(ttttt);
                 //}
             } 
@@ -2400,7 +2394,7 @@ struct NN
         file >> str_data;
         layermap.resize(std::stoi(str_data),{});
         file >> str_data;
-        int itr = 0;
+        int itr = 0;   
         while(true){
             std::string data;
             file >> data;
@@ -2473,6 +2467,7 @@ struct NN
         }
         itr = 0;
         while (true)
+
         {
             std::string data;
             file >> data;
@@ -2623,36 +2618,31 @@ struct NN
             if(n.recurrent_connection.vec.size()==0){
                 return;
             }
-            std::vector<float> softmax_out(n.recurrent_connection.arr_size);
-            #pragma omp simd
+            std::vector<float> rweights(n.recurrent_connection.arr_size);
             for(int i = 0; i < n.recurrent_connection.arr_size;i++){
-                softmax_out[i] = states(tstep-1,n.recurrent_connection(0,i));
+                rweights[i] = sigmoid(states(tstep-1,n.recurrent_connection(0,i)));
             } 
-            soft_max(softmax_out);
             for(int i = 0; i < n.recurrent_connection.arr_size;i++){
-                neural_net[n.recurrent_connection(2,i)].units[15]=states(tstep-1,n.recurrent_connection(1,i))*softmax_out[i];
+                neural_net[n.recurrent_connection(2,i)].units[15]=states(tstep-1,n.recurrent_connection(1,i))*rweights[i];
             }
         }
         inline void drecurrent_connect(NN &n,int tstep, vec_of_arr<float> &gradients, vec_of_arr<float> &states){
             if(n.recurrent_connection.vec.size()==0){
                 return;
             }
-            std::vector<float> softmax_out(n.recurrent_connection.arr_size);
-            #pragma omp simd
+            std::vector<float> rweights(n.recurrent_connection.arr_size);
             for(int i = 0; i < n.recurrent_connection.arr_size;i++){
-                softmax_out[i] = states(tstep-1,n.recurrent_connection(0,i));
-            } 
-            soft_max(softmax_out);
-            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
-                gradients(tstep-1,n.recurrent_connection(1,i)) += gradients(tstep,n.recurrent_connection(2,i)) * softmax_out[i];
+                rweights[i] = sigmoid(states(tstep-1,n.recurrent_connection(0,i)));
             }
             for(int i = 0; i < n.recurrent_connection.arr_size;i++){
-                float dsjdzi=0;
-                #pragma omp simd
-                for(int j = 0 ; j < n.recurrent_connection.arr_size;j++){
-                    dsjdzi += softmax_out[j] * ((i==j)-softmax_out[i]);
-                }
-                gradients(tstep-1,n.recurrent_connection(0,i)) += gradients(tstep,n.recurrent_connection(2,i)) * dsjdzi;
+                gradients(tstep-1,n.recurrent_connection(1,i)) += gradients(tstep,n.recurrent_connection(2,i)) * rweights[i];
+            }
+            #pragma omp simd
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                rweights[i] = 1-rweights[i];
+            }
+            for(int i = 0; i < n.recurrent_connection.arr_size;i++){
+                gradients(tstep-1,n.recurrent_connection(0,i)) += gradients(tstep,n.recurrent_connection(2,i)) * rweights[i];
             }
         }
         // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
