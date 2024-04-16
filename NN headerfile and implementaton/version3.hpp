@@ -1,11 +1,19 @@
 /*
 # Using Re:Zero(Bachlechner et Al), in order to ensure gradients propagate
-# https://arxiv.org/abs/2003.04887
-# As Re:Zero stars off with the identity function only we use Xavier initilisation(Glorot et Al)
+# https://arxiv.org/abs/2003.04887p
+# As Re:Zero starts off with the identity function only we use 
+
+# Xavier initilisation(Glorot et Al)
 # https://proceedings.mlr.press/v9/glorot10a/glorot10a.pdf
+
 # ReLU(Agarap) actiation function is also employed 
 # https://arxiv.org/abs/1803.08375
+
 # Layernorm(Ba et Al) : https://arxiv.org/abs/1607.06450
+
+# Random Orthogonal Matrices using algorithm by Stewart(1980) 
+# The Efficient Generation of Random Orthogonal Matrices with an Application to Condition Estimators
+# https://www.jstor.org/stable/2156882
 
 # eventually will implement jagged array to replace all std::vector<std::vector<T>>
 */
@@ -37,8 +45,102 @@ std::uniform_real_distribution<float> zero_to_one(0.0,1.0);
 std::random_device rsksksksksks;                          
 std::mt19937 ttttt(rsksksksksks());
 
+
+
 inline float sign_of(float x){
     return((std::signbit(x) * -2.0f) + 1.0f);
+}
+
+// turn N by N array into identity matrix 
+template <size_t N>
+void inline identity_matrix(std::array<std::array<float, N>, N> &array)
+{
+    // zero out array then write the diagonals
+    #pragma omp simd collapse(2)
+    for(int i = 0 ; i < N; i++){
+       for(int j = 0 ; j < N ; j++){
+            array[i][j] = 0.0f;        
+        }
+    }
+
+    for(int i = 0 ; i < N; i++){
+        array[i][i] = 1.0f;
+    }
+}
+
+
+
+// generate a random orthogonal array using method 
+// of Householder Matrix
+// Stewart(1980) The Efficient Generation of Random Orthogonal Matrices with an Application to Condition Estimators
+// https://www-jstor-org.ucd.idm.oclc.org/stable/2156882?seq=4
+template <size_t N>
+void rorthog_arr(std::array<std::array<float, N>, N> &array)
+{
+    std::normal_distribution<float> stdnorm(0.0f,1.0f);
+    std::array<std::array<float, N>, N> I_n;
+    std::array<std::array<float, N>, N> Ortho;
+    identity_matrix(I_n);
+    Ortho = I_n;
+    std::array<std::array<float, N>, N> D_e=I_n;
+    for(int i=1;i<N;i++){
+        std::array<std::array<float, N>, N> H_k;
+        H_k = I_n;
+        std::array<std::array<float, N>, N> product;
+        std::vector<float> rand_norm_vec(N-i+1,0);
+        float norm = 0;
+        for(int j = 0; j < N-i+1; j++){
+            rand_norm_vec[j] = stdnorm(ttttt);
+            norm += rand_norm_vec[j] * rand_norm_vec[j];
+        }
+        float x_norm = sqrt(norm);
+        norm -= rand_norm_vec[0] * rand_norm_vec[0]; 
+        D_e[i-1][i-1]=sign_of(rand_norm_vec[0]);
+        rand_norm_vec[0] -= D_e[i-1][i-1]*x_norm;
+        norm += rand_norm_vec[0] * rand_norm_vec[0]; 
+        norm = (1.0f/norm);
+        for(int j = 0; j < N-i+1; j++){
+            for(int k = 0; k < N-i+1; k++){
+                H_k[j+i-1][k+i-1]-=2 * rand_norm_vec[j]*rand_norm_vec[k]*norm;
+            }
+        }
+        // matrix multiplication naive implementation hope the cache is big
+        for(int j = 0 ; j < N; j++){
+            for(int k = 0; k < N; k++){
+                product[j][k] = 0;
+            }
+            for(int k = 0; k < N; k++){
+                for(int l = 0; l < N; l++){
+                    product[j][k] +=  H_k[j][l]*Ortho[l][k];
+                }
+            }
+        }
+        Ortho=product;
+    }
+    // final result optionally try and mess with determinant
+    for(int j = 0 ; j < N; j++){
+        for(int k = 0; k < N; k++){
+            array[j][k] = 0;
+        }
+        for(int k = 0; k < N; k++){
+            for(int l = 0; l < N; l++){
+                array[j][k] += D_e[j][l]*Ortho[l][k];
+            }
+        }
+    }
+}
+
+template <size_t N>
+void print_matrix(std::array<std::array<float, N>, N> &array)
+{
+    for(int i = 0 ; i < N; i++){
+        std::cout<<"{";
+        for(int j = 0 ; j < N-1; j++){
+            std::cout<<array[i][j]<<", ";
+        }
+        std::cout<<array[i][N-1]<<"}\n";
+    }
+    std::cout<<std::endl;
 }
 
 float quadractic_increase(float x){
@@ -162,6 +264,10 @@ float cross_entrophy_loss(std::vector<float> &target, std::vector<float> & outpu
     return loss;
 }
 
+
+
+
+
 // struct for holding gradients for individual neurons before update
 // neurons will have 1 input 1 output and 2 hidden layers of 8 units
 struct neuron_gradients
@@ -198,9 +304,9 @@ struct neuron_gradients
             n.alpha[i] += alpha[i] * learning_rate;
             current_grad.alpha[i] = 0;
         }
-        #pragma omp simd collapse(2)
         for (uint8_t i = 0; i < 9; i++)
         {
+            #pragma omp simd
             for (uint8_t j = 0; j < 7; j++)
             {
                 weights[i][j] *= beta;
@@ -222,9 +328,9 @@ struct neuron_gradients
         {
             alpha[i] += grad.alpha[i];
         }
-        #pragma omp simd collapse(2)
         for (int i = 0; i < 9; i++)
         {
+            #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
                 weights[i][j] += grad.weights[i][j];
@@ -260,19 +366,32 @@ struct neuron_unit
     struct layernorm_tag{layernorm_tag(){}};
     
     neuron_unit(){
-        //  Xavier initialisation
-        std::normal_distribution<float> a (0.0f,0.5f);            // input to 1st hidden layer
-        std::normal_distribution<float> b (0.0f,0.3779644730f);    // input to 2nd hidden layer
+        //  Xavier initialisation sorta?
+        float sswi = 0;
+        float sswo = 0;
+        float Xavier_init_a = 0.5f;
+        std::normal_distribution<float> a (0,Xavier_init_a);            // input to 1st hidden layer
+        std::array<std::array<float,7>,7> orthogonal_weight_matrix;
+        rorthog_arr(orthogonal_weight_matrix);
         for (uint8_t i = 0; i < 7; i++)
         {
             weights[0][i] = a(ttttt);
+            sswi += weights[0][i]* weights[0][i];
             weights[8][i] = a(ttttt);
+            sswo += weights[8][i]* weights[8][i];
+        }
+        sswi = std::sqrt(1/sswi);
+        sswo = std::sqrt(1/sswo);
+        for (uint8_t i = 0; i < 7; i++)
+        {
+            weights[0][i] *= sswi;
+            weights[8][i] *= sswo;
         }
         for (uint8_t i = 1; i < 8; i++)
         {
-            for (uint8_t j = 0; j < 8; j++)
+            for (uint8_t j = 0; j < 7; j++)
             {
-                weights[i][j] = b(ttttt);
+                weights[i][j] = orthogonal_weight_matrix[i-1][j];
             }
         }
     }
@@ -307,35 +426,21 @@ struct neuron_unit
     
     inline void reinit_mem(){
         a_f=3;
-        float mean = 0;
-        float var = 0;
-        for (int i = 3; i < 7; i++){
-            mean += weights[8][i];
+        float norm=0;
+        for(int i = 0; i < 3; i++){
+            norm += weights[8][i]*weights[8][i];
         }
-        mean *= 0.25;
-        for(int i = 3; i<7 ; i++){
-            var += (weights[8][i] - mean) *  (weights[8][i] - mean);
+        norm = std::sqrt(1.0f/norm);
+        for(int i = 0; i < 3; i++){
+            weights[8][i]*=norm;
         }
-        var *= 0.25;
-        var = std::sqrt(var);
-        var = 1.0f/var;
-        for(int i = 3; i<7 ; i++){
-           weights[8][i] = (weights[8][i] - mean) * var;
+        norm = 0;
+        for(int i = 3; i < 7; i++){
+            norm += weights[8][i]*weights[8][i];
         }
-        mean = 0;
-        var = 0;
-        for (int i = 0; i < 3; i++){
-            mean += weights[8][i];
-        }
-        mean *= 1.0f/3.0f;
-        for(int i = 0; i < 3 ; i++){
-            var += (weights[8][i] - mean) *  (weights[8][i] - mean);
-        }
-        var *= 1.0f/3.0f;
-        var = std::sqrt(var);
-        var = 1.0f/var;
-        for(int i = 0; i<3 ; i++){
-           weights[8][i] = (weights[8][i] - mean) * var * std::sqrt(1.0f/3.0f);
+        norm = std::sqrt(1.0f/norm);
+        for(int i = 3; i < 7; i++){
+            weights[8][i]*=norm;
         }
     }
 
@@ -353,7 +458,7 @@ struct neuron_unit
             units[i] += pacts[i] * alpha[i];
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint8_t i = 8; i < 16; i++)
         {
             units[i] = bias[i];        
         }
@@ -371,7 +476,6 @@ struct neuron_unit
             pacts[i] = act_func(units[i],af);
             units[i] += pacts[i] * alpha[i];
         }
-        units[15] = bias[15];
         #pragma omp simd
         for (uint8_t i = 8; i < 15; i++)
         {
@@ -529,7 +633,7 @@ struct neuron_unit
         {
             b += units[i] * weights[8][i-8];
         }
-        units[15] = ht_m1 + std::tanh(b)*sigmoid(4.0f * a);
+        units[15] = ht_m1 + std::tanh(b)*sigmoid(a);
     }
 
     inline void forward_pass(std::array<float,16> &pacts,float ht_m1=0){
@@ -580,8 +684,8 @@ struct neuron_unit
         }
         tm1grad += dldz;
         float tanhb = std::tanh(b);
-        float siga = sigmoid(4.0f * a);
-        float da = dldz * 4.0f * siga*(1-siga)*tanhb;
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
         float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
@@ -623,7 +727,7 @@ struct neuron_unit
         for (int i = 1; i < 8; i++)
         {
             gradients.alpha[i] += units[i] * pacts[i];
-            units[i] += units[i]*(alpha[i]*drelu(pacts[i]));
+            units[i] += units[i]*alpha[i]*drelu(pacts[i]);
             gradients.bias[i] += units[i];
             units[0] += units[i] * weights[0][i-1];
         }
@@ -1078,7 +1182,7 @@ struct np_neuron_unit
         {
             b += units[i] * n.weights[8][i-8];
         }
-        units[15] = ht_m1 + std::tanh(b)*sigmoid(4.0f * a);
+        units[15] = ht_m1 + std::tanh(b)*sigmoid(a);
     }
 
     inline void forward_pass(neuron_unit &n, std::array<float,16> &pacts,float ht_m1=0){
@@ -1128,8 +1232,8 @@ struct np_neuron_unit
         }
         tm1grad += dldz;
         float tanhb = std::tanh(b);
-        float siga = sigmoid(4.0f * a);
-        float da = dldz * 4.0f * siga*(1-siga)*tanhb;
+        float siga = sigmoid(a);
+        float da = dldz * siga*(1-siga)*tanhb;
         float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
@@ -1892,7 +1996,7 @@ struct NN
         }
         std::vector<float> rweights(recurrent_connection.arr_size);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            rweights[i] = sigmoid(states(tstep-1,recurrent_connection(0,i)));
+            rweights[i] = std::tanh(states(tstep-1,recurrent_connection(0,i)));
         } 
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*rweights[i];
@@ -1905,13 +2009,14 @@ struct NN
         }
         std::vector<float> rweights(recurrent_connection.arr_size);
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            rweights[i] = sigmoid(states(tstep-1,recurrent_connection(0,i)));
+            rweights[i] = std::tanh(states(tstep-1,recurrent_connection(0,i)));
         } 
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i];
         }
         for(int i = 0; i < recurrent_connection.arr_size;i++){
-            rweights[i] *= 1.0f-rweights[i];
+            rweights[i] *= rweights[i];
+            rweights[i] = 1-rweights[i];
         } 
         for(int i = 0; i < recurrent_connection.arr_size;i++){
             gradients(tstep-1,recurrent_connection(0,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i];
@@ -2053,11 +2158,21 @@ struct NN
                     //weights[i][j].y = 0; /*this seems to stop gradient explosion*/
                 //}
                 //else{
-                flout Xavier_init = std::sqrt(6.0f/(input_layer_size + depth[weights[i][j].x]));
-                std::uniform_real_distribution<float> weight_init_dist(-Xavier_init,Xavier_init);
+                float Xavier_init = std::sqrt(2.0f/(input_layer_size + depth[weights[i][j].x]));
+                std::normal_distribution<float> weight_init_dist(0,Xavier_init);
                 weights[i][j].y = weight_init_dist(ttttt);
                 //}
             } 
+        }
+        for(int i = 0 ; i < size; i++){
+            float norm = 0;
+            for(int j = 0 ; j < weights[i].size();j++){
+                norm += weights[i][j].y*weights[i][j].y;
+            }
+            norm = std::sqrt(1.0f/norm);
+            for(int j = 0 ; j < weights[i].size(); j++){
+                weights[i][j].y *= norm;
+            }
         }
     }
 
