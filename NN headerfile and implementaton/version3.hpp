@@ -1007,10 +1007,18 @@ struct int_float
     inline int_float(int a, float b){x=a;y=b;}
 };
 
+struct  int_int
+{
+    int x;
+    int y;
+    inline int_int(int a, int b){x=a;y=b;}
+};
+
 struct NN
 {
     std::vector<neuron_unit> neural_net;
     std::vector<std::vector<int_float>> weights;
+    std::vector<std::vector<int_int>> bweights;
 
     struct network_gradient
     {
@@ -1560,6 +1568,29 @@ struct NN
         max_layer_size = update_max_layer_size();
     } 
     
+    void bweights_sync(){
+        depth.reserve(neural_net.size());
+        depth.resize(neural_net.size());
+        std::fill(depth.begin(),depth.end(),0);
+        bweights.resize(neural_net.size());
+        for(int i = 0 ; i < neural_net.size(); i++){
+            for(int j = 0; j < weights[i].size(); j++){
+                depth[weights[i][j].x] += 1;
+            }
+        }
+        for(int i = 0 ; i <neural_net.size(); i++){
+            bweights[i].resize(depth[i],int_int(0,0));
+        }
+        std::fill(depth.begin(),depth.end(),0);
+        for(int i = 0 ; i < neural_net.size(); i++){
+            for(int j = 0; j < weights[i].size(); j++){
+                bweights[weights[i][j].x][depth[weights[i][j].x]].x = i;
+                bweights[weights[i][j].x][depth[weights[i][j].x]].y = j;
+                depth[weights[i][j].x] += 1;
+            }
+        }
+    }
+
     NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int min_layer_size = 1, int connection_radius = -1)
     :neural_net(size,neuron_unit())
     ,input_index(input_neurons)
@@ -1620,15 +1651,8 @@ struct NN
             }
         }
         layermap_sync();
-        // using this now to store other information will clear at the end
-        depth.reserve(neural_net.size());
-        depth.resize(neural_net.size());
-        std::fill(depth.begin(),depth.end(),0);
-        for(int i = 0 ; i < size; i++){
-            for(int j = 0; j < weights[i].size(); j++){
-                depth[weights[i][j].x] += 1;
-            }
-        }
+        // using this now to store other information will clear at the end    
+        bweights_sync();
         for (int i = 0; i < size; i++)
         {   //not really the correct way to use He initialisation but eh
             float input_layer_size = weights[i].size();
@@ -1641,7 +1665,7 @@ struct NN
                     //weights[i][j].y = 0; /*this seems to stop gradient explosion*/
                 //}
                 //else{
-                float Xavier_init = std::sqrt(2.0f/(input_layer_size + depth[weights[i][j].x]));
+                float Xavier_init = std::sqrt(2.0f/(input_layer_size + bweights[weights[i][j].x].size()));
                 std::normal_distribution<float> weight_init_dist(0,Xavier_init);
                 weights[i][j].y = weight_init_dist(ttttt);
                 //}
@@ -1793,45 +1817,34 @@ struct NN
             {
                 for (int j = layermap.size() - 1; j >= 0; j--)
                 {   
-                    #pragma omp for schedule(static,16)
+                    #pragma omp for schedule(dynamic,16)
                     for (int k = 0; k < layermap[j].size(); k++)
                     {
                         const int & n = layermap[j][k];
-                        dldz[k] = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
-                    }   
-                    for (int k = 0; k < layermap[j].size(); k++)
-                    {
-                        const int & n = layermap[j][k];
-                        #pragma omp for schedule(static,16)
-                        for (int l = 0; l < weights[n].size(); l++)
+                        for (int l = 0; l < bweights[n].size(); l++)
                         {
-                            //const int t_step = (n > weights[n][l].x) ? (i):(i-1);
-                            gradients(i,weights[n][l].x) += dldz[k] * weights[n][l].y;
-                            net_grad.weight_gradients[n][l] += dldz[k] * post[i].values[weights[n][l].x][15]; 
-                        }   
+                            gradients(i,n) += gradients(i,bweights[n][l].x) * weights[bweights[n][l].x][bweights[n][l].y].y;
+                            net_grad.weight_gradients[bweights[n][l].x][bweights[n][l].y] += gradients(i,bweights[n][l].x) * post[i].values[n][15]; 
+                        }
+                        gradients(i,n) = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
                     }  
                 }
                 drecurrent_connect(i,gradients, states);
             }
             for (int j = layermap.size() - 1; j >= 0; j--)
             {
-                #pragma omp for schedule(static,16)
+                #pragma omp for schedule(dynamic,16)
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
                     const int & n = layermap[j][k];
-                    float nothing = 0;
-                    dldz[k] = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
-                }     
-                for (int k = 0; k < layermap[j].size(); k++)
-                {
-                    const int & n = layermap[j][k];
-                    #pragma omp for schedule(static,16)
-                    for (int l = 0; l < weights[n].size(); l++)
+                    for (int l = 0; l < bweights[n].size(); l++)
                     {
-                        gradients(0,weights[n][l].x) += dldz[k] * weights[n][l].y;
-                        net_grad.weight_gradients[n][l] += dldz[k] * post[0].values[weights[n][l].x][15];
-                    }       
-                }      
+                        gradients(0,n) += gradients(0,bweights[n][l].x) * weights[bweights[n][l].x][bweights[n][l].y].y;
+                        net_grad.weight_gradients[bweights[n][l].x][bweights[n][l].y] += gradients(0,bweights[n][l].x) * post[0].values[n][15]; 
+                    }
+                    float nothing = 0;                  // I didn't template another fucntion so will just pass an arguement
+                    gradients(0,n) = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
+                }          
             }
         }
     }
@@ -2114,6 +2127,7 @@ struct NN
             neural_net[input_index[i]].isinput = true;
         }
         max_layer_size = update_max_layer_size();
+        bweights_sync();
     }
 
     // returns true if inputs can appect every output of current timestep
