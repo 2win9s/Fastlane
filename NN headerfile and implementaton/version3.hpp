@@ -1797,7 +1797,6 @@ struct NN
 
     //back propagation through time, passing arguement gradients to avoid memorry allocation
     inline void bptt(vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
-        std::vector<float> dldz(max_layer_size);
         #pragma omp parallel
         {
             #pragma omp for simd schedule(static,16)
@@ -1824,7 +1823,6 @@ struct NN
                         for (int l = 0; l < bweights[n].size(); l++)
                         {
                             gradients(i,n) += gradients(i,bweights[n][l].x) * weights[bweights[n][l].x][bweights[n][l].y].y;
-                            net_grad.weight_gradients[bweights[n][l].x][bweights[n][l].y] += gradients(i,bweights[n][l].x) * post[i].values[n][15]; 
                         }
                         gradients(i,n) = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
                     }  
@@ -1840,11 +1838,18 @@ struct NN
                     for (int l = 0; l < bweights[n].size(); l++)
                     {
                         gradients(0,n) += gradients(0,bweights[n][l].x) * weights[bweights[n][l].x][bweights[n][l].y].y;
-                        net_grad.weight_gradients[bweights[n][l].x][bweights[n][l].y] += gradients(0,bweights[n][l].x) * post[0].values[n][15]; 
                     }
                     float nothing = 0;                  // I didn't template another fucntion so will just pass an arguement
                     gradients(0,n) = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                 }          
+            }
+            #pragma omp for schedule(dynamic)
+            for(int i = 0 ; i < weights.size(); i ++){
+                for(int j = 0 ; j < weights[i].size(); j++){
+                    for(int k = 0 ; k < dloss.vec_size; k++){
+                        net_grad.weight_gradients[i][j] += gradients(k,i) * post[k].values[weights[i][j].x][15];
+                    } 
+                }
             }
         }
     }
@@ -2265,6 +2270,7 @@ struct NN
         delete[] new_weights;
         delete[] new_weights_limit;
         layermap_sync();
+        bweights_sync();
     }
 };
 
