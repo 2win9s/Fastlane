@@ -1432,6 +1432,7 @@ struct NN
     std::vector<int> input_index;           //indexing recording input neurons
     std::vector<int> output_index;          //indexing recording output neurons
     std::vector<std::vector<int>> layermap;
+    unsigned int max_layer_size;
     std::vector<int> depth;                    // for layermap purposes
 
     vec_of_arr<int> recurrent_connection;      // taking inspiration from attention the reccurent weights will be generated on the fly
@@ -1514,6 +1515,14 @@ struct NN
             }
         }
     }
+    
+    int update_max_layer_size(){
+        int maxi = 0;
+        for(int i = 0; i < layermap.size(); i++){
+            maxi = (maxi>=layermap[i].size()) ? maxi:layermap[i].size();
+        }
+        return maxi;
+    }
 
     void layermap_sync(){
         layermap.clear();
@@ -1548,6 +1557,7 @@ struct NN
             }
             layermap[depth[i]].emplace_back(i);
         }
+        max_layer_size = update_max_layer_size();
     } 
     
     NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int min_layer_size = 1, int connection_radius = -1)
@@ -1763,7 +1773,7 @@ struct NN
 
     //back propagation through time, passing arguement gradients to avoid memorry allocation
     inline void bptt(vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
-        std::vector<float> dldz(layermap[layermap.size()-1].size());
+        std::vector<float> dldz(max_layer_size);
         #pragma omp parallel
         {
             #pragma omp for simd schedule(static,16)
@@ -1783,11 +1793,11 @@ struct NN
             {
                 for (int j = layermap.size() - 1; j >= 0; j--)
                 {   
-                    #pragma omp for schedule(static)
+                    #pragma omp for schedule(static,16)
                     for (int k = 0; k < layermap[j].size(); k++)
                     {
                         const int & n = layermap[j][k];
-                        float dldz[k] = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
+                        dldz[k] = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
                     }   
                     for (int k = 0; k < layermap[j].size(); k++)
                     {
@@ -1800,26 +1810,17 @@ struct NN
                             net_grad.weight_gradients[n][l] += dldz[k] * post[i].values[weights[n][l].x][15]; 
                         }   
                     }  
-                    #pragma omp single
-                    {
-                        dldz.resize(layermap[j-1].size());
-                    }
                 }
                 drecurrent_connect(i,gradients, states);
             }
             for (int j = layermap.size() - 1; j >= 0; j--)
             {
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(static,16)
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
                     const int & n = layermap[j][k];
                     float nothing = 0;
-                    float dldz[k] = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
-                    for (int l = 0; l < weights[n].size(); l++)
-                    {
-                        gradients(0,weights[n][l].x) += dldz * weights[n][l].y;
-                        net_grad.weight_gradients[n][l] += dldz * post[0].values[weights[n][l].x][15];
-                    }       
+                    dldz[k] = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                 }     
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
@@ -1827,8 +1828,8 @@ struct NN
                     #pragma omp for schedule(static,16)
                     for (int l = 0; l < weights[n].size(); l++)
                     {
-                        gradients(0,weights[n][l].x) += dldz * weights[n][l].y;
-                        net_grad.weight_gradients[n][l] += dldz * post[0].values[weights[n][l].x][15];
+                        gradients(0,weights[n][l].x) += dldz[k] * weights[n][l].y;
+                        net_grad.weight_gradients[n][l] += dldz[k] * post[0].values[weights[n][l].x][15];
                     }       
                 }      
             }
@@ -2112,7 +2113,7 @@ struct NN
         {
             neural_net[input_index[i]].isinput = true;
         }
-        
+        max_layer_size = update_max_layer_size();
     }
 
     // returns true if inputs can appect every output of current timestep
