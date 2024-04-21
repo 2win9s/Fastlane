@@ -1050,7 +1050,7 @@ struct NN
                 {
                     net_grads[i].valclear();
                 }
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(dynamic)
                 for (int i = 0; i < weight_gradients.size(); i++)
                 {
                     #pragma omp simd
@@ -1074,12 +1074,11 @@ struct NN
                 {
                     net_grads[i].sgd_with_momentum(n.neural_net[i],learning_rate,beta,current_gradient.net_grads[i],iter_bias_correction);
                 }
-                #pragma omp master
+                #pragma omp single
                 {
-                learning_rate *= (-iter_bias_correction);
+                    learning_rate *= (-iter_bias_correction);
                 }
-                #pragma omp barrier
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(dynamic)
                 for (int i = 0; i < weight_gradients.size(); i++)
                 {
                     #pragma omp simd
@@ -1253,7 +1252,7 @@ struct NN
                         }   
                     }
                 }
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(dynamic)
                 for (int i = 0; i < weight_gradients.size(); i++)
                 {
                     #pragma omp simd
@@ -1262,7 +1261,7 @@ struct NN
                         gradient_l2_norm+=weight_gradients[i][j]*weight_gradients[i][j];
                     }
                 }
-                #pragma omp master
+                #pragma omp single
                 {
                     gradient_l2_norm = std::sqrt(gradient_l2_norm);
                     /*
@@ -1278,7 +1277,6 @@ struct NN
                     retu = gradient_l2_norm>max;
                     gradient_l2_norm = (retu)? (max/gradient_l2_norm):gradient_l2_norm;
                 }
-                #pragma omp barrier
                 if (retu){}
                 else{
                     #pragma omp for schedule(static)
@@ -1303,7 +1301,7 @@ struct NN
                             }   
                         }
                     }
-                    #pragma omp for schedule(static)
+                    #pragma omp for schedule(dynamic)
                     for (int i = 0; i < weight_gradients.size(); i++)
                     {
                         #pragma omp simd
@@ -1347,7 +1345,7 @@ struct NN
                     net_grads[j].add(grad.net_grads[j]);
                     grad.net_grads[j].valclear();
                 }
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(dynamic)
                 for (int j = 0; j < grad.weight_gradients.size(); j++)
                 {
                     #pragma omp simd
@@ -1653,7 +1651,7 @@ struct NN
     }
 
     inline void valclear(){
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int i = 0; i < neural_net.size(); i++)
         {
             neural_net[i].valclear();
@@ -1662,7 +1660,7 @@ struct NN
     struct state{
         std::vector<std::array<float,16>> values;
         void valclear(){
-            #pragma omp for
+            #pragma omp for schedule(static)
             for (int i = 0; i < values.size(); i++)
             {
                 #pragma omp simd
@@ -1684,7 +1682,7 @@ struct NN
     };
     // post for post activation values
     inline void record_state(state &post){
-        #pragma omp for
+        #pragma omp for schedule(static)
         for (int i = 0; i < neural_net.size(); i++)
         {
             #pragma omp simd
@@ -1704,14 +1702,14 @@ struct NN
         {
             #pragma omp parallel
             {
-                #pragma omp for
+                #pragma omp for schedule(dynamic)
                 for (int i = 0; i < input_index.size(); i++)
                 {
                     neural_net[input_index[i]].units[0] = inputs[i];
                 }
                 for (int i = 0; i < layermap.size(); i++)
                 {
-                    #pragma omp for
+                    #pragma omp for schedule(dynamic)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
@@ -1720,6 +1718,9 @@ struct NN
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y *  neural_net[weights[layermap[i][j]][l].x].units[15];
                         }
                         neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
+                    }
+                    #pragma omp for schedule(static,16)
+                    for(int j = 0; j < layermap[i].size();j++){
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
                     }
                 }
@@ -1729,7 +1730,7 @@ struct NN
         else{
             #pragma omp parallel
             {
-                #pragma omp for
+                #pragma omp for schedule(dynamic)
                 for (int i = 0; i < input_index.size(); i++)
                 {
                     neural_net[input_index[i]].units[0] = inputs[i];
@@ -1737,7 +1738,7 @@ struct NN
                 connect_recurrent(states,tstep);
                 for (int i = 0; i < layermap.size(); i++)
                 {
-                    #pragma omp for
+                    #pragma omp for schedule(dynamic)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
@@ -1748,6 +1749,9 @@ struct NN
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * neural_net[weights[layermap[i][j]][l].x].units[15];
                         }
                         neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]],states(tstep-1,layermap[i][j]));
+                    }
+                    #pragma omp for schedule(static,16)
+                    for(int j = 0; j < layermap[i].size();j++){
                         states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
                     }
                 }
@@ -1757,71 +1761,21 @@ struct NN
         return;
     }
 
-    template<typename T>
-    inline void forward_pass(T &inputs, vec_of_arr<float> & states,int tstep,state &pre){
-        for (int i = 0; i < input_index.size(); i++)
-        {
-            neural_net[input_index[i]].units[0] = inputs[i];
-        }
-        switch (tstep)
-        {
-            case 0:
-                for (int i = 0; i < layermap.size(); i++)
-                {
-                    for (int j = 0; j < layermap[i].size(); j++)
-                    {   
-                        neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
-                        for (int l = 0; l < weights[layermap[i][j]].size(); l++)
-                        {               
-                            const int in_indx = weights[layermap[i][j]][l].x;
-                            const float in = (in_indx > layermap[i][j]) ? 0.0f : neural_net[in_indx].units[15];
-                            neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
-                        }
-                        neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
-                        states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
-                    }
-                }
-                return;
-            
-            default:
-                connect_recurrent(states,tstep);
-                for (int i = 0; i < layermap.size(); i++)
-                {
-                    for (int j = 0; j < layermap[i].size(); j++)
-                    {   
-                        neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
-                        for (int l = 0; l < weights[layermap[i][j]].size(); l++)
-                        {
-                            const int in_indx = weights[layermap[i][j]][l].x;
-                            const float in = (in_indx > layermap[i][j]) ? states(tstep - 1,in_indx) : neural_net[in_indx].units[15];
-                            neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * in;
-                        }
-                        neural_net[layermap[i][j]].forward_pass(pre.values[layermap[i][j]]);
-                        states(tstep,layermap[i][j]) = neural_net[layermap[i][j]].units[15];
-                    }
-                }
-                return;
-        }
-    }
-
     //back propagation through time, passing arguement gradients to avoid memorry allocation
     inline void bptt(vec_of_arr<float> & dloss, std::vector<state> &pre, std::vector<state> &post, network_gradient &net_grad,vec_of_arr<float> &states, vec_of_arr<float> &gradients){
+        std::vector<float> dldz(layermap[layermap.size()-1].size());
         #pragma omp parallel
         {
             #pragma omp for simd schedule(static,16)
             for(int i = 0 ; i < gradients.vec.size(); i++){
                 gradients.vec[i] = 0;
             }
+            #pragma omp for schedule(static)
             for (int i = 0; i < dloss.vec_size; i++)
             {
-                #pragma omp for
                 for (int j = 0; j < dloss.arr_size; j++)
                 {
                     gradients(i,output_index[j]) = dloss(i,j);
-                }
-                #pragma omp for simd schedule(static,16)
-                for (int j = 0; j < dloss.arr_size; j++)
-                {
                     dloss(i,j) = 0;
                 }
             }
@@ -1829,40 +1783,54 @@ struct NN
             {
                 for (int j = layermap.size() - 1; j >= 0; j--)
                 {   
-                    #pragma omp for
+                    #pragma omp for schedule(static)
                     for (int k = 0; k < layermap[j].size(); k++)
                     {
                         const int & n = layermap[j][k];
-                        float dldz = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));
+                        float dldz[k] = neural_net[n].backpropagation(gradients(i,n),post[i].values[n],pre[i].values[n],net_grad.net_grads[n],gradients(i-1,n));   
+                    }   
+                    for (int k = 0; k < layermap[j].size(); k++)
+                    {
+                        const int & n = layermap[j][k];
+                        #pragma omp for schedule(static,16)
                         for (int l = 0; l < weights[n].size(); l++)
                         {
                             //const int t_step = (n > weights[n][l].x) ? (i):(i-1);
-                            gradients(i,weights[n][l].x) += dldz * weights[n][l].y;
-                            net_grad.weight_gradients[n][l] += dldz * post[i].values[weights[n][l].x][15]; 
+                            gradients(i,weights[n][l].x) += dldz[k] * weights[n][l].y;
+                            net_grad.weight_gradients[n][l] += dldz[k] * post[i].values[weights[n][l].x][15]; 
                         }   
-                    }   
+                    }  
+                    #pragma omp single
+                    {
+                        dldz.resize(layermap[j-1].size());
+                    }
                 }
                 drecurrent_connect(i,gradients, states);
             }
             for (int j = layermap.size() - 1; j >= 0; j--)
             {
-                #pragma omp for
+                #pragma omp for schedule(static)
                 for (int k = 0; k < layermap[j].size(); k++)
                 {
                     const int & n = layermap[j][k];
                     float nothing = 0;
-                    float dldz = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
+                    float dldz[k] = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                     for (int l = 0; l < weights[n].size(); l++)
                     {
-                        /*
-                        if (weights[n][l].x > n)
-                        {
-                            continue;
-                        }*/
                         gradients(0,weights[n][l].x) += dldz * weights[n][l].y;
                         net_grad.weight_gradients[n][l] += dldz * post[0].values[weights[n][l].x][15];
                     }       
-                }           
+                }     
+                for (int k = 0; k < layermap[j].size(); k++)
+                {
+                    const int & n = layermap[j][k];
+                    #pragma omp for schedule(static,16)
+                    for (int l = 0; l < weights[n].size(); l++)
+                    {
+                        gradients(0,weights[n][l].x) += dldz * weights[n][l].y;
+                        net_grad.weight_gradients[n][l] += dldz * post[0].values[weights[n][l].x][15];
+                    }       
+                }      
             }
         }
     }
