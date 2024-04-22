@@ -277,9 +277,17 @@ struct neuron_gradients
     float weights[9][7] = {0};
     float padding = 0;
     inline void valclear(){    //wrapper function for memset
-        memset(alpha,0,sizeof(alpha));
-        memset(bias,0,sizeof(bias));
-        memset(weights,0,sizeof(float)*9*7);
+        #pragma omp simd
+        for(int i = 0; i < 16; i++){
+            alpha[i] = 0;
+            bias[i] = 0;
+        }
+        #pragma omp simd collapse(2)
+        for(int i = 0 ; i < 9; i ++){
+            for(int j = 0 ; j < 7; j++){
+                weights[i][j] = 0;
+            }
+        }
     }   
 
     // zeros out the current gradient
@@ -288,7 +296,7 @@ struct neuron_gradients
         float b = 1 - beta;
         learning_rate *= (-b_correction);
         #pragma omp simd
-        for (uint8_t i = 0; i < 16; i++)
+        for (uint_fast8_t i = 0; i < 16; i++)
         {
             bias[i] *= beta;
             bias[i] += current_grad.bias[i] * b;
@@ -297,7 +305,7 @@ struct neuron_gradients
         }
         
         #pragma omp simd
-        for (uint8_t i = 0; i < 16; i++)
+        for (uint_fast8_t i = 0; i < 16; i++)
         {
             alpha[i] *= beta;
             alpha[i] += current_grad.alpha[i] * b;
@@ -305,9 +313,9 @@ struct neuron_gradients
             current_grad.alpha[i] = 0;
         }
         #pragma omp simd collapse(2)
-        for (uint8_t i = 0; i < 9; i++)
+        for (uint_fast8_t i = 0; i < 9; i++)
         {   
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 weights[i][j] *= beta;
                 weights[i][j] += current_grad.weights[i][j] * b;
@@ -328,9 +336,9 @@ struct neuron_gradients
         {
             alpha[i] += grad.alpha[i];
         }
+        #pragma omp simd collapse(2)
         for (int i = 0; i < 9; i++)
         {
-            #pragma omp simd
             for (int j = 0; j < 7; j++)
             {
                 weights[i][j] += grad.weights[i][j];
@@ -373,7 +381,7 @@ struct neuron_unit
         std::normal_distribution<float> a (0,Xavier_init_a);            // input to 1st hidden layer
         std::array<std::array<float,7>,7> orthogonal_weight_matrix;
         rorthog_arr(orthogonal_weight_matrix);
-        for (uint8_t i = 0; i < 7; i++)
+        for (uint_fast8_t i = 0; i < 7; i++)
         {
             weights[0][i] = a(ttttt);
             sswi += weights[0][i]* weights[0][i];
@@ -382,14 +390,14 @@ struct neuron_unit
         }
         sswi = std::sqrt(1/sswi);
         sswo = std::sqrt(1/sswo);
-        for (uint8_t i = 0; i < 7; i++)
+        for (uint_fast8_t i = 0; i < 7; i++)
         {
             weights[0][i] *= sswi;
             weights[8][i] *= sswo;
         }
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 weights[i][j] = orthogonal_weight_matrix[i-1][j];
             }
@@ -397,7 +405,10 @@ struct neuron_unit
     }
     
     inline void valclear(){    //wrapper function for memset on units
-        memset(units,0,sizeof(units));
+        #pragma omp simd
+        for(int i = 0; i < 16; i++){
+            units[i] = 0;
+        }
     };
 
     // wrapper function for relu and drelu
@@ -450,7 +461,7 @@ struct neuron_unit
         pacts[0] = act_func(units[0],af);
         units[0] += (pacts[0] * alpha[0]);
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             units[i] = units[0] * weights[0][i-1];
             units[i] += bias[i];
@@ -458,26 +469,26 @@ struct neuron_unit
             units[i] += pacts[i] * alpha[i];
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 16; i++)
+        for (uint_fast8_t i = 8; i < 16; i++)
         {
             units[i] = bias[i];        
         }
         #pragma omp simd collapse(2)
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 units[i] += units[j+1] * weights[i-7][j];
             }    
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             pacts[i] = act_func(units[i],af);
             units[i] += pacts[i] * alpha[i];
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             units[15] += units[i] * weights[8][i-8];
         }
@@ -494,7 +505,7 @@ struct neuron_unit
         float mean = 0;
         float sd = 0;
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             units[i] = units[0] * weights[0][i-1];
             units[i] += bias[i];
@@ -508,7 +519,7 @@ struct neuron_unit
         mean *= 0.14285714285714285f;           // divide by 7
 
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             sd += (units[i] - mean)*(units[i] - mean);
         }
@@ -518,33 +529,33 @@ struct neuron_unit
         sd = 1.0f/(sd+n_zero);
         // layernorm part
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             units[i] = (units[i] - mean)*sd;
         }
 
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             units[i] = bias[i];        
         }
         #pragma omp simd collapse(2)
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 units[i] += units[j+1] * weights[i-7][j];
             }    
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             pacts[i] = act_func(units[i],af);
             units[i] += pacts[i] * alpha[i];
         }
         units[15] = bias[15];
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             units[15] += units[i] * weights[8][i-8];
         }
@@ -557,7 +568,7 @@ struct neuron_unit
         pacts[0] = relu(units[0]);
         units[0] += (pacts[0] * alpha[0]);
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             units[i] = units[0] * weights[0][i-1];
             units[i] += bias[i];
@@ -565,20 +576,20 @@ struct neuron_unit
             units[i] += pacts[i] * alpha[i];
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             units[i] = bias[i];        
         }
         #pragma omp simd collapse(2)
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 units[i] += units[j+1] * weights[i-7][j];
             }    
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             pacts[i] = relu(units[i]);
             units[i] += pacts[i] * alpha[i];
@@ -591,7 +602,7 @@ struct neuron_unit
         pacts[0] = relu(units[0]);
         units[0] += (pacts[0] * alpha[0]);
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             units[i] = units[0] * weights[0][i-1];
             units[i] += bias[i];
@@ -599,20 +610,20 @@ struct neuron_unit
             units[i] = pacts[i] * alpha[i];
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             units[i] = bias[i];        
         }
         #pragma omp simd collapse(2)
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
-            for (uint8_t j = 0; j < 7; j++)
+            for (uint_fast8_t j = 0; j < 7; j++)
             {
                 units[i] += units[j+1] * weights[i-7][j];
             }    
         }
         #pragma omp simd
-        for (uint8_t i = 8; i < 15; i++)
+        for (uint_fast8_t i = 8; i < 15; i++)
         {
             pacts[i] = std::sin(units[i]);
             units[i] = pacts[i] * alpha[i];
@@ -624,12 +635,12 @@ struct neuron_unit
         float a = alpha[15];
         float b = bias[15];
         #pragma omp simd
-        for (uint8_t i = 8; i < 11; i++)
+        for (uint_fast8_t i = 8; i < 11; i++)
         {
             a += units[i] * weights[8][i-8];
         }
         #pragma omp simd
-        for (uint8_t i = 11; i < 15; i++)
+        for (uint_fast8_t i = 11; i < 15; i++)
         {
             b += units[i] * weights[8][i-8];
         }
@@ -673,12 +684,12 @@ struct neuron_unit
         float a = alpha[15];
         float b = bias[15];
         #pragma omp simd
-        for (uint8_t i = 8; i < 11; i++)
+        for (uint_fast8_t i = 8; i < 11; i++)
         {
             a += past_unit[i] * weights[8][i-8];
         }
         #pragma omp simd
-        for (uint8_t i = 11; i < 15; i++)
+        for (uint_fast8_t i = 11; i < 15; i++)
         {
             b += past_unit[i] * weights[8][i-8];
         }
@@ -689,15 +700,11 @@ struct neuron_unit
         float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
-        units[0] = 0;
-        units[1] = 0;
-        units[2] = 0;
-        units[3] = 0;
-        units[4] = 0;
-        units[5] = 0;
-        units[6] = 0;
-        units[7] = 0;
-        for (uint8_t i = 8; i < 11; i++){
+        #pragma omp simd
+        for(uint_fast8_t i = 0 ; i < 8; i++){
+            units[i] = 0;
+        }
+        for (uint_fast8_t i = 8; i < 11; i++){
             units[i] = da*weights[8][i-8];
             gradients.weights[8][i-8] += da*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
@@ -710,7 +717,7 @@ struct neuron_unit
                 gradients.weights[i-7][j] += units[i]*past_unit[j+1];
             }
         }
-        for (uint8_t i = 11; i < 15; i++){
+        for (uint_fast8_t i = 11; i < 15; i++){
             units[i] = db*weights[8][i-8];
             gradients.weights[8][i-8] += db*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
@@ -742,12 +749,12 @@ struct neuron_unit
         float a = alpha[15];
         float b = bias[15];
         #pragma omp simd
-        for (uint8_t i = 8; i < 11; i++)
+        for (uint_fast8_t i = 8; i < 11; i++)
         {
             a += past_unit[i] * weights[8][i-8];
         }
         #pragma omp simd
-        for (uint8_t i = 11; i < 15; i++)
+        for (uint_fast8_t i = 11; i < 15; i++)
         {
             b += past_unit[i] * weights[8][i-8];
         }
@@ -758,15 +765,11 @@ struct neuron_unit
         float db = dldz * siga*(1-(tanhb*tanhb));
         gradients.alpha[15] += da;
         gradients.bias[15] += db;
-        units[0] = 0;
-        units[1] = 0;
-        units[2] = 0;
-        units[3] = 0;
-        units[4] = 0;
-        units[5] = 0;
-        units[6] = 0;
-        units[7] = 0;
-        for (uint8_t i = 8; i < 11; i++){
+        #pragma omp simd
+        for(uint_fast8_t i = 0 ; i < 8; i++){
+            units[i] = 0;
+        }
+        for (uint_fast8_t i = 8; i < 11; i++){
             units[i] = da*weights[8][i-8];
             gradients.weights[8][i-8] += da*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
@@ -779,7 +782,7 @@ struct neuron_unit
                 gradients.weights[i-7][j] += units[i]*past_unit[j+1];
             }
         }
-        for (uint8_t i = 11; i < 15; i++){
+        for (uint_fast8_t i = 11; i < 15; i++){
             units[i] = db*weights[8][i-8];
             gradients.weights[8][i-8] += db*past_unit[i];
             gradients.alpha[i] += units[i] * pacts[i];
@@ -813,14 +816,10 @@ struct neuron_unit
         gradients.alpha[15] += dldz * pacts[15];
         dldz += dldz * alpha[15] * dact_func(pacts[15],af);
         gradients.bias[15] += dldz;
-        units[0] = 0;
-        units[1] = 0;
-        units[2] = 0;
-        units[3] = 0;
-        units[4] = 0;
-        units[5] = 0;
-        units[6] = 0;
-        units[7] = 0;
+        #pragma omp simd
+        for(uint_fast8_t i = 0 ; i < 8; i++){
+            units[i] = 0;
+        }
         for(int i = 8 ; i < 15; i++){
             units[i] = dldz*weights[8][i-8];
             gradients.weights[8][i-8] += dldz*past_unit[i];
@@ -856,14 +855,10 @@ struct neuron_unit
         gradients.alpha[15] += dldz * pacts[15];
         dldz += dldz * alpha[15] * dact_func(pacts[15],af);
         gradients.bias[15] += dldz;
-        units[0] = 0;
-        units[1] = 0;
-        units[2] = 0;
-        units[3] = 0;
-        units[4] = 0;
-        units[5] = 0;
-        units[6] = 0;
-        units[7] = 0;
+        #pragma omp simd
+        for(uint_fast8_t i = 0 ; i < 8; i++){
+            units[i] = 0;
+        }
         float mean = 0;
         float sd = 0;
         #pragma omp simd
@@ -875,7 +870,7 @@ struct neuron_unit
         mean *= 0.14285714285714285f;           // divide by 7
 
         #pragma omp simd
-        for (uint8_t i = 1; i < 8; i++)
+        for (uint_fast8_t i = 1; i < 8; i++)
         {
             sd += (past_unit[i] - mean)*(past_unit[i] - mean);
         }
@@ -1086,7 +1081,7 @@ struct NN
                 {
                     learning_rate *= (-iter_bias_correction);
                 }
-                #pragma omp for schedule(dynamic)
+                #pragma omp for schedule(dynamic,16)
                 for (int i = 0; i < weight_gradients.size(); i++)
                 {
                     #pragma omp simd
@@ -1238,7 +1233,7 @@ struct NN
             bool retu = false;
             #pragma omp parallel
             {
-                #pragma omp for schedule(static)
+                #pragma omp for schedule(static) reduction(+:gradient_l2_norm)
                 for (int i = 0; i < net_grads.size(); i++)
                 {
                     #pragma omp simd
@@ -1260,7 +1255,7 @@ struct NN
                         }   
                     }
                 }
-                #pragma omp for schedule(dynamic)
+                #pragma omp for schedule(dynamic,16) reduction(+:gradient_l2_norm)
                 for (int i = 0; i < weight_gradients.size(); i++)
                 {
                     #pragma omp simd
@@ -1282,8 +1277,8 @@ struct NN
                         std::exit(0);
                     }  
                     returnnorm=gradient_l2_norm;
-                    retu = gradient_l2_norm>max;
-                    gradient_l2_norm = (retu)? (max/gradient_l2_norm):gradient_l2_norm;
+                    retu = gradient_l2_norm<max;
+                    gradient_l2_norm = (!retu)? (max/gradient_l2_norm):gradient_l2_norm;
                 }
                 if (retu){}
                 else{
@@ -1309,7 +1304,7 @@ struct NN
                             }   
                         }
                     }
-                    #pragma omp for schedule(dynamic)
+                    #pragma omp for schedule(dynamic,16)
                     for (int i = 0; i < weight_gradients.size(); i++)
                     {
                         #pragma omp simd
@@ -1362,7 +1357,6 @@ struct NN
                         weight_gradients[j][k] += grad.weight_gradients[j][k];
                         grad.weight_gradients[j][k] = 0;
                     }
-                        
                 }
             }
         }
@@ -1474,7 +1468,7 @@ struct NN
             for(int i = 0; i < recurrent_connection.arr_size;i++){
                 rweights[i] = std::tanh(states(tstep-1,recurrent_connection(0,i)));
             } 
-            #pragma omp for
+            #pragma omp for schedule(static)
             for(int i = 0; i < recurrent_connection.arr_size;i++){
                 neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*rweights[i];
             }
@@ -1736,14 +1730,14 @@ struct NN
         {
             #pragma omp parallel
             {
-                #pragma omp for schedule(dynamic)
+                #pragma omp for schedule(static,4)
                 for (int i = 0; i < input_index.size(); i++)
                 {
                     neural_net[input_index[i]].units[0] = inputs[i];
                 }
                 for (int i = 0; i < layermap.size(); i++)
                 {
-                    #pragma omp for schedule(dynamic)
+                    #pragma omp for schedule(dynamic,16)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
@@ -1764,7 +1758,7 @@ struct NN
         else{
             #pragma omp parallel
             {
-                #pragma omp for schedule(dynamic)
+                #pragma omp for schedule(static,4)
                 for (int i = 0; i < input_index.size(); i++)
                 {
                     neural_net[input_index[i]].units[0] = inputs[i];
@@ -1772,7 +1766,7 @@ struct NN
                 connect_recurrent(states,tstep);
                 for (int i = 0; i < layermap.size(); i++)
                 {
-                    #pragma omp for schedule(dynamic)
+                    #pragma omp for schedule(dynamic,16)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
                         neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
@@ -1843,12 +1837,27 @@ struct NN
                     gradients(0,n) = neural_net[n].backpropagation(gradients(0,n),post[0].values[n],pre[0].values[n],net_grad.net_grads[n],nothing);
                 }          
             }
+            /*
             #pragma omp for schedule(dynamic)
             for(int i = 0 ; i < weights.size(); i ++){
                 for(int j = 0 ; j < weights[i].size(); j++){
                     for(int k = 0 ; k < dloss.vec_size; k++){
-                        net_grad.weight_gradients[i][j] += gradients(k,i) * post[k].values[weights[i][j].x][15];
+                        net_grad.weight_gradients[i][j] += gradients(k,i) * states(k,weights[i][j].x);
                     } 
+                }
+            }
+            */
+            #pragma omp for schedule(dynamic,16)
+            for(int j = 0; j < weights.size(); j++){
+                std::vector<float> temp(weights[j].size());
+                for(int i = 0 ; i < dloss.vec_size; i++){
+                    for(int k = 0; k < weights[j].size(); k++){
+                        temp[k] = states(i,weights[j][k].x);
+                    }
+                    #pragma omp simd
+                    for(int k = 0; k < weights[j].size(); k++){
+                        net_grad.weight_gradients[j][k] += gradients(i,j) * temp[k];
+                    }
                 }
             }
         }
