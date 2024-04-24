@@ -15,6 +15,6 @@ The result is that a neuron will take the value of the input neuron's state at t
 
 The objective is to allow the neural net to be able to "learn" the number of layers and the number of neurons in each layer through some combination of regularisation of weights and the pruning of weight values close to 0 then rearranging layers according to the remaining weights. This also allows multiple neural networks to be "patched together", by re-indexing the neurons of a neural network and then initialising some new weights.
 
-An obvious issue is neurons are not fixed to a certain layer, can end up in different ones at different points during training, or even have new neurons introduced. As a consequence popular normalisation methods that enable the training of very deep neural networks such as batchnorm and layernorm cannot be applied. Thus ReZero (Bachlechner et al 2020) is used, as it is a mostly architecture agnostic method that seems to work.
+An obvious issue is neurons are not fixed to a certain layer, can end up in different ones at different points during training, or even have new neurons introduced. As a consequence popular normalisation methods that enable the training of very deep neural networks such as batchnorm and layernorm cannot be applied. At first ReZero (Bachlechner et al 2020) is used, as it is a mostly architecture agnostic method that seems to work then replaced by adding identity functions almost everywhere.
 
 The artificial neural networks are implemented from scratch i.e. no use of ml libraries.
