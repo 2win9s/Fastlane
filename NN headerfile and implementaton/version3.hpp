@@ -375,8 +375,6 @@ struct neuron_unit
     
     neuron_unit(){
         //  Xavier initialisation sorta?
-        float sswi = 0;
-        float sswo = 0;
         float Xavier_init_a = 0.5f;
         std::normal_distribution<float> a (0,Xavier_init_a);            // input to 1st hidden layer
         std::array<std::array<float,7>,7> orthogonal_weight_matrix;
@@ -384,17 +382,13 @@ struct neuron_unit
         for (uint_fast8_t i = 0; i < 7; i++)
         {
             weights[0][i] = a(ttttt);
-            sswi += weights[0][i]* weights[0][i];
-            weights[8][i] = a(ttttt);
-            sswo += weights[8][i]* weights[8][i];
         }
-        sswi = std::sqrt(1/sswi);
-        sswo = std::sqrt(1/sswo);
+        #pragma omp simd
         for (uint_fast8_t i = 0; i < 7; i++)
         {
-            weights[0][i] *= sswi;
-            weights[8][i] *= sswo;
+            weights[8][i] = 0;
         }
+        #pragma omp simd collapse(2)
         for (uint_fast8_t i = 1; i < 8; i++)
         {
             for (uint_fast8_t j = 0; j < 7; j++)
@@ -438,6 +432,12 @@ struct neuron_unit
     inline void reinit_mem(){
         a_f=3;
         float norm=0;
+        float Xavier_init_a = 0.5f;
+        std::normal_distribution<float> a (0,Xavier_init_a);            // input to 1st hidden layer
+        for (uint_fast8_t i = 0; i < 7; i++)
+        {
+            weights[8][i] = a(ttttt);
+        }
         for(int i = 0; i < 3; i++){
             norm += weights[8][i]*weights[8][i];
         }
@@ -647,34 +647,41 @@ struct neuron_unit
         units[15] = ht_m1 + std::tanh(b)*sigmoid(a);
     }
 
-    inline void forward_pass(std::array<float,16> &pacts,float ht_m1=0){
+    inline void forward_pass(std::array<float,16> &pacts,float ht_m1=0.0f){
         sine_neuron s;
         log_relu_neuron l;
         relu_neuron r;
         memory_neuron m;
         sin_memory_neuron si;
         layernorm_tag lt;
+        float skip_c = units[0];
         switch (a_f)
         {
         case 1:
             f_p(pacts,s);
+            units[15] += skip_c;
             return;
         case 2:
             f_p(pacts,l);
+            units[15] += skip_c;
             return;
         case 3:
             f_p(pacts,m);
             mem_update(ht_m1);
+            //units[15] += skip_c;
             return;
         case 4:
             f_p(pacts,si);
             mem_update(ht_m1);
+            //units[15] += skip_c;
             return;
         case 5:
             f_p(pacts,r,lt);
+            units[15] += skip_c;
             return;
         default:
             f_p(pacts,r);
+            units[15] += skip_c;
             return;
         }
     }
@@ -932,17 +939,17 @@ struct neuron_unit
         switch (a_f)
         {
         case 1:
-            return backprop(dldz, past_unit, pacts, gradients, s);
+            return (backprop(dldz, past_unit, pacts, gradients, s) + dldz);
         case 2:
-            return backprop(dldz, past_unit, pacts, gradients, l);
+            return (backprop(dldz, past_unit, pacts, gradients, l) + dldz);
         case 3:
-            return backprop(dldz,past_unit, pacts,gradients, m,tm1grad);
+            return (backprop(dldz,past_unit, pacts,gradients, m,tm1grad));
         case 4:
-            return backprop(dldz,past_unit, pacts,gradients, si,tm1grad);   
+            return (backprop(dldz,past_unit, pacts,gradients, si,tm1grad));   
         case 5:
-            return backprop(dldz, past_unit, pacts, gradients, r, lt);
+            return (backprop(dldz, past_unit, pacts, gradients, r, lt) + dldz);
         default:
-            return backprop(dldz,past_unit, pacts,gradients, r);   
+            return (backprop(dldz,past_unit, pacts,gradients, r) + dldz);   
         }
     }
 };
@@ -1439,11 +1446,13 @@ struct NN
 
     vec_of_arr<int> recurrent_connection;      // taking inspiration from attention the reccurent weights will be generated on the fly
     std::vector<float> rweights;
+    std::vector<float> routput;
     void set_recurrent_c(std::vector<int> & weight_index, std::vector<int> & recurrent_in, std::vector<int> & recurrent_to){
         if((weight_index.size()==recurrent_in.size())&&(recurrent_in.size()==recurrent_to.size())){
             recurrent_connection.arr_size=recurrent_in.size();
             recurrent_connection.vec.resize(3*recurrent_connection.arr_size);
             rweights.resize(recurrent_connection.arr_size);
+            routput.resize(recurrent_connection.arr_size);
             for(int i = 0; i < recurrent_connection.arr_size; i++){
                 recurrent_connection(0,i) = weight_index[i];
                 //std::cout<<recurrent_connection(0,i)<<"|"<<weight_index[i]<<std::endl;
@@ -1453,7 +1462,7 @@ struct NN
             }
             for(int i = 0; i < recurrent_connection.arr_size; i++){
                 recurrent_connection(2,i) = recurrent_to[i];
-                neural_net[recurrent_to[i]].isinput=1;
+                neural_net[recurrent_to[i]].isinput=2;
             }
         }
         else{
@@ -1464,13 +1473,17 @@ struct NN
     inline void connect_recurrent(vec_of_arr<float> & states, int tstep){
         if(recurrent_connection.vec.size()==0){}
         else{
-            #pragma omp for schedule(static,16)
+            #pragma omp for schedule(static,16) nowait
             for(int i = 0; i < recurrent_connection.arr_size;i++){
                 rweights[i] = std::tanh(states(tstep-1,recurrent_connection(0,i)));
             } 
-            #pragma omp for schedule(static)
+            #pragma omp for schedule(static,16)
             for(int i = 0; i < recurrent_connection.arr_size;i++){
-                neural_net[recurrent_connection(2,i)].units[15]=states(tstep-1,recurrent_connection(1,i))*rweights[i];
+                routput[i] = sigmoid(states(tstep-1,recurrent_connection(1,i)));
+            } 
+            #pragma omp for schedule(static,16)
+            for(int i = 0; i < recurrent_connection.arr_size;i++){
+                neural_net[recurrent_connection(2,i)].units[0]=routput[i]*rweights[i];
             }
         }
     }
@@ -1484,13 +1497,17 @@ struct NN
             } 
             #pragma omp for schedule(static,16)
             for(int i = 0; i < recurrent_connection.arr_size;i++){
-                gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i];
-            }
+                routput[i] = sigmoid(states(tstep-1,recurrent_connection(1,i)));
+            } 
             #pragma omp for schedule(static,16)
+            for(int i = 0; i < recurrent_connection.arr_size;i++){
+                gradients(tstep-1,recurrent_connection(1,i)) += gradients(tstep,recurrent_connection(2,i)) * rweights[i] * routput[i] * (1-routput[i]);
+            }
+            #pragma omp for simd schedule(static,16)
             for(int i = 0; i < recurrent_connection.arr_size;i++){
                 rweights[i] *= rweights[i];
                 rweights[i] = 1-rweights[i];
-                rweights[i] *= states(tstep-1,recurrent_connection(1,i));
+                rweights[i] *= routput[i];
             }
             #pragma omp for schedule(static,16)
             for(int i = 0; i < recurrent_connection.arr_size;i++){
@@ -1740,7 +1757,7 @@ struct NN
                     #pragma omp for schedule(dynamic,16)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
-                        neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        neural_net[layermap[i][j]].units[0] *= (neural_net[layermap[i][j]].isinput==1);
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {               
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y *  neural_net[weights[layermap[i][j]][l].x].units[15];
@@ -1769,7 +1786,7 @@ struct NN
                     #pragma omp for schedule(dynamic,16)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
-                        neural_net[layermap[i][j]].units[0] *= neural_net[layermap[i][j]].isinput;
+                        neural_net[layermap[i][j]].units[0] *= (neural_net[layermap[i][j]].isinput==1);
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {
                             //const int in_indx = weights[layermap[i][j]][l].x;
@@ -2039,6 +2056,7 @@ struct NN
         recurrent_connection.vec_size = 3;
         recurrent_connection.vec.resize(rec_arrs*3);
         rweights.resize(recurrent_connection.arr_size);
+        routput.resize(recurrent_connection.arr_size);
         for(int i=0;i<rec_arrs;i++){
             std::string data;
             file >> data;
@@ -2138,7 +2156,7 @@ struct NN
         file.close();
         for (int i = 0; i < input_index.size(); i++)
         {
-            neural_net[input_index[i]].isinput = true;
+            neural_net[input_index[i]].isinput = 2;
         }
         max_layer_size = update_max_layer_size();
         bweights_sync();
@@ -2280,6 +2298,17 @@ struct NN
         delete[] new_weights_limit;
         layermap_sync();
         bweights_sync();
+    }
+
+
+    void mem_reinit_sync(){
+        for(int i = 0; i < weights.size(); i++){
+            if(neural_net[i].a_f==3){
+                for(int j = 0; j < weights[i].size();j++){
+                    weights[i][j].y = 0;
+                }
+            }
+        }
     }
 };
 
