@@ -9,3 +9,4 @@ The content of the csv file have been extracted and split into the text.txt and 
 
 
 
+After a lot of reworking there seems to be progress possibly
