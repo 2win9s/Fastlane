@@ -8,6 +8,9 @@
 # ReLU(Agarap) actiation function is also employed 
 # https://arxiv.org/abs/1803.08375
 
+# Nesterov momentum
+# Nesterov, Y (1983). "A method for unconstrained convex minimization problem with the rate of convergence O(1/k^2)". Doklady AN USSR. 269: 543–547.
+
 # Layernorm(Ba et Al) : https://arxiv.org/abs/1607.06450
 
 # Random Orthogonal Matrices using algorithm by Stewart(1980) 
@@ -253,6 +256,14 @@ void dsoft_max(std::vector<float> &output, std::vector<float> &target, std::vect
     }
 }
 
+float pmf_entrophy(std::vector<float> &pmf){
+    float entrophy = 0;
+    for(int i = 0 ; i < pmf.size(); i++){
+        entrophy -= pmf[i] * std::log(pmf[i]);
+    }
+    return entrophy;
+}
+
 float cross_entrophy_loss(std::vector<float> &target, std::vector<float> & output){
     float loss = 0;
     for (int i = 0; i < output.size(); i++)
@@ -289,6 +300,7 @@ struct neuron_gradients
     }   
 
     // zeros out the current gradient
+    // so exponential averageing but who to cite?
     template <typename neuron>
     inline void sgd_with_momentum(neuron &n, float learning_rate, float beta, neuron_gradients &current_grad, float b_correction=1){    
         float b = 1 - beta;
@@ -318,6 +330,35 @@ struct neuron_gradients
         }
         
     }
+
+    template <typename neuron>
+    inline void sgd_with_nesterov(neuron &n, float learning_rate, float beta, neuron_gradients &current_grad){    
+        padding_or_param1 *= beta;
+        padding_or_param1 += current_grad.padding_or_param1;
+        n.padding_or_param1 -= (padding_or_param1 + current_grad.padding_or_param1*beta) * learning_rate;
+        current_grad.padding_or_param1 = 0;
+        //#pragma omp simd
+        for (uint_fast8_t i = 0; i < 16; i++)
+        {
+            bias[i] *= beta;
+            bias[i] += current_grad.bias[i];
+            n.bias[i] -= (bias[i]+current_grad.bias[i] * beta) * learning_rate;
+            current_grad.bias[i] = 0;
+        }
+        //#pragma omp simd collapse(2)
+        for (uint_fast8_t i = 0; i < 9; i++)
+        {   
+            for (uint_fast8_t j = 0; j < 7; j++)
+            {
+                weights[i][j] *= beta;
+                weights[i][j] += current_grad.weights[i][j];
+                n.weights[i][j] -= (current_grad.weights[i][j] + weights[i][j]*beta) * learning_rate;
+                current_grad.weights[i][j] = 0;
+            }
+        }
+        
+    }
+
     inline void add(neuron_gradients & grad){
         padding_or_param1 += grad.padding_or_param1;
         //#pragma omp simd
@@ -977,6 +1018,31 @@ struct NN
             }
         }
 
+        inline void sgd_with_nesterov(NN &n, float learning_rate, float beta, network_gradient &current_gradient, int unused_arg=0){
+            #pragma omp parallel shared(learning_rate)
+            {
+                #pragma omp for schedule(static)
+                for (int i = 0; i < n.neural_net.size(); i++)
+                {
+                    net_grads[i].sgd_with_nesterov(n.neural_net[i],learning_rate,beta,current_gradient.net_grads[i]);
+                }
+                #pragma omp barrier
+                #pragma omp for schedule(dynamic,16)
+                for (int i = 0; i < weight_gradients.size(); i++)
+                {
+                    ////#pragma omp simd
+                    for (int j = 0; j < weight_gradients[i].size(); j++)
+                    {
+                        weight_gradients[i][j] *= beta;
+                        weight_gradients[i][j] += current_gradient.weight_gradients[i][j];
+                        n.weights[i][j].y -= (weight_gradients[i][j]+current_gradient.weight_gradients[i][j] * beta)*learning_rate;
+                        current_gradient.weight_gradients[i][j] = 0;
+                    }   
+                }
+            }
+        }
+
+
         //restrict gradients from -1 to 1
         inline void restrict_tanh(){
             for (int i = 0; i < net_grads.size(); i++)
@@ -1618,13 +1684,13 @@ struct NN
                         {    
                             temp[l] = states(tstep,weights[layermap[i][j]][l].x);
                         }*/
-                        neural_net[layermap[i][j]].units[0] *= (neural_net[layermap[i][j]].isinput==1);
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput==1 ) ? neural_net[layermap[i][j]].units[0]:0.0f;
                         ////#pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {               
                             neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * states(tstep,weights[layermap[i][j]][l].x);
                         }
-                        neural_net[layermap[i][j]].forward_pass();
+                        neural_net[layermap[i][j]].forward_pass(0.0f);
                     }
                     #pragma omp for schedule(static,16)
                     for(int j = 0; j < layermap[i].size();j++){
@@ -1649,7 +1715,7 @@ struct NN
                     #pragma omp for schedule(dynamic,16)
                     for (int j = 0; j < layermap[i].size(); j++)
                     {   
-                        neural_net[layermap[i][j]].units[0] *= (neural_net[layermap[i][j]].isinput!=0);
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput!=0) ? neural_net[layermap[i][j]].units[0]:0.0f;
                         /*
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {    
@@ -1955,7 +2021,7 @@ struct NN
             std::string data;
             file >> data;
             recurrent_connection(2,i)=std::stoi(data);
-            neural_net[recurrent_connection(2,i)].isinput=1;
+            neural_net[recurrent_connection(2,i)].isinput=2;
         }
         file >> str_data;
         file >> str_data;
@@ -2037,7 +2103,7 @@ struct NN
         file.close();
         for (int i = 0; i < input_index.size(); i++)
         {
-            neural_net[input_index[i]].isinput = 2;
+            neural_net[input_index[i]].isinput = 1;
         }
         bweights_sync();
         update_max_sizes();
