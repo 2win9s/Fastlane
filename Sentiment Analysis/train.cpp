@@ -15,8 +15,8 @@
 #include"version3.hpp"
 #include<sstream>
 #include<deque>
-
-#include<windows.h>
+#include<cstring>
+///#include<windows.h>
 
 
 NN hopeless("model.txt");
@@ -34,17 +34,70 @@ std::vector<std::vector<float>> encoded_target(60000,{0,0,0});
 std::array<float,383> blank_input = {0};
 const int thinktime=5;
 
+
+float avg_entrophy = 0;
+
+int threads = 12;
+int epochs;
+int batch_size = 64;
+float mal_r;
+float mil_r;
+int period;
+
+void template_config_create(){
+    std::ofstream config("config.txt",std::fstream::trunc);
+    config << "no_threads: 16\n"<<
+    "epochs: 1000\n"<<
+    "batch_size: 64\n"<<
+    "max_lr: 0.01\n"<<
+    "min_lr: 0.000001\n"<<
+    "period: 42\n"<<
+    "\n"<<
+    "\n"<<
+    "\n"<<
+    "-------------------------------------\n"<<
+    "NOTE LEAVE SPACE BETWEEN COLON \":\" AND THE VALUE OF THE HYPERPARAMETER!!!!";
+    config.close();
+}
+
+void read_config(){
+    std::string hparam;
+    std::ifstream config("config.txt");
+    if (config.good()){;}else{template_config_create();std::cout<<"ERROR "<<"config.txt"<<" does not exist, templace created"<<std::endl; std::exit(EXIT_FAILURE);}
+    config >> hparam;
+    config >> hparam;
+    threads = std::stoi(hparam);
+    config >> hparam;
+    config >> hparam;
+    epochs = std::stoi(hparam);
+    config >> hparam;
+    config >> hparam;
+    batch_size = std::stoi(hparam);   
+    config >> hparam;
+    config >> hparam;
+    mal_r = std::stof(hparam);   
+    config >> hparam;
+    config >> hparam;
+    mil_r = std::stof(hparam); 
+    config >> hparam;
+    config >> hparam;
+    period = std::stoi(hparam); 
+    config.close();
+}
+
 void load_data(){
     std::ifstream data("text.txt");
     std::ifstream label("label.txt");
     for (int i = 0; i < 60000; i++)
     {
         std::getline(data,inputdata[i]);
+        inputdata[i].erase(inputdata[i].find_last_not_of("\r\n") + 1);
     }
     data.close();
     for (int i = 0; i < 60000; i++)
     {
         std::getline(label,labels[i]);
+        labels[i].erase(labels[i].find_last_not_of("\r\n") + 1);
     }
     label.close();
 }
@@ -61,29 +114,33 @@ uint8_t input_convert(std::string s){
 }
 
 void encode(){
+    std::string pos = "Positive";
+    std::string neg = "Negative";
+    std::string neu = "Neutral";
     for (int i = 0; i < 60000; i++)
     {
-        if (labels[i] == "Positive")
+        if (labels[i].compare(pos)==0)
         {
             encoded_target[i][0] = 1;
             encoded_target[i][1] = 0;
             encoded_target[i][2] = 0;
         }
-        else if (labels[i] == "Negative")
+        else if (labels[i].compare(neg)==0)
         {
             encoded_target[i][0] = 0;
             encoded_target[i][1] = 1;
             encoded_target[i][2] = 0;
         }
-        else if (labels[i] == "Neutral")
+        else if (labels[i].compare(neu)==0)
         {
             encoded_target[i][0] = 0;
             encoded_target[i][1] = 0;
             encoded_target[i][2] = 1;
         }
         else{
+            std::cout<<labels[i]<<std::flush;
             std::cout<<"ERROR!!!!!!, label"<<std::endl;
-            std::cout<<labels[i]<<std::endl;
+            std::cout<<labels[i].compare(pos)<<" "<<labels[i].length()<<std::endl;
             std::exit(EXIT_FAILURE);        
         }    
     }
@@ -134,11 +191,14 @@ void shuffle_tr_data(){
     }
 }
 
-int acc_iteration(int textindex, NN::training_essentials &helper){
-    int acc=0; 
+int_float acc_iteration(int textindex, NN::training_essentials &helper){
+    int_float acc_loss=int_float(0,0.0f);
     helper.resize(encoded_input[textindex].size()+thinktime);   
     int fpasscount = 0;
     std::vector<float> output(3,0);
+    for(int j = 0; j < 3; j++){
+        output[j] = 0;
+    }
     soft_max(output);
     for (int i = 0; i < encoded_input[textindex].size(); i++)
     {
@@ -166,27 +226,32 @@ int acc_iteration(int textindex, NN::training_essentials &helper){
         {
             if (encoded_target[textindex][prediction(output)]==1)
             {
-                acc=1;
+                acc_loss.x=1;
             }   
+            acc_loss.y = cross_entrophy_loss(encoded_target[textindex],output);
             break;
         }
         fpasscount++;
     }
-    return acc;
+    return acc_loss;
 }
 
 void sample_acc(NN::training_essentials &helper){
     float acc = 0;
+    float lo = 0;
     for (int i = 40000; i < 50000; i++)
     {
         if (inputdata[i].size() == 0)
         {
             continue;
         }
-        acc+=acc_iteration(i,helper);
+        int_float ret = acc_iteration(i,helper);
+        acc += ret.x;
+        lo += ret.y;
     }
     acc *= 0.0001;
-    std::cout<<"accuracy on validation set is:"<<acc<<std::endl;
+    lo *= 0.0001;
+    std::cout<<"accuracy on validation set is:"<<acc<<", average loss is:"<<lo<<std::endl;
 }
 
 float tr_iteration(int textindex, NN::training_essentials &helper){
@@ -195,6 +260,9 @@ float tr_iteration(int textindex, NN::training_essentials &helper){
     helper.resize(encoded_input[textindex].size()+thinktime);   
     int fpasscount = 0;
     std::vector<float> output(3,0);
+    for(int j = 0; j < 3; j++){
+        output[j] = 0;
+    }
     soft_max(output);
     for (int i = 0; i < encoded_input[textindex].size(); i++)
     {
@@ -219,15 +287,14 @@ float tr_iteration(int textindex, NN::training_essentials &helper){
             output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
         }
         soft_max(output);
-        if ((*std::max_element(output.begin(),output.end())>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
+        dsoft_max(output,encoded_target[textindex],losso);
+        for (int j = 0; j < 3; j++)
         {
-            loss = cross_entrophy_loss(encoded_target[textindex],output);
-            dsoft_max(output,encoded_target[textindex],losso);
-            for (int j = 0; j < 3; j++)
-            {
-                helper.dloss(fpasscount,j)=(std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15])<50) ? losso[j]:sign_of(hopeless.neural_net[hopeless.output_index[j]].units[15]) /** (std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15]) - 50)*/;   
-            }
-                /*
+            helper.dloss(fpasscount,j)=(std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15])<40) ? losso[j]:sign_of(hopeless.neural_net[hopeless.output_index[j]].units[15]) * (std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15]) - 40);   
+        }
+        if (fpasscount==(helper.dloss.vec_size-1))
+        {
+            /*
                 std::cout<<std::endl;
                 for(int j = 0; j < 3; j++){
                     std::cout<<encoded_target[textindex][j]<<",";
@@ -241,23 +308,26 @@ float tr_iteration(int textindex, NN::training_essentials &helper){
                     std::cout<<output[j]<<",";
                 }
                 std::cout<<std::endl;*/
+            loss = cross_entrophy_loss(encoded_target[textindex],output);
+            avg_entrophy += pmf_entrophy(output);
             helper.resize(fpasscount+1);
             hopeless.bptt(helper.dloss,helper.post,helper.f,helper.states,helper.gradients);
             break;
         }
         fpasscount++;
     }
-    helper.f.global_norm_clip(10.0f);
+    helper.f.global_norm_clip(690.0f);
     return loss;
 }
 
 float cosine_anneal_lr(int epoch, int period, float minlr, float maxlr){
+    /*
     if((epoch%period) <= period * 1.0f/3.0f)
     {
         return minlr + (maxlr-minlr)*(epoch%period)/(period * 1.0f/3.0f);
     }
     epoch -= period * 1.0f/3.0f;
-    period = period * 2.0f/3.0f;
+    period = period * 2.0f/3.0f;*/
     return (minlr+(0.5*(maxlr - minlr)*(1+std::cos(3.141592653589793f * epoch/period))));
 }
 
@@ -268,16 +338,12 @@ int main(){
     }
     load_data(); 
     encode();
-    u_int batch_size = 64;
-    u_int threads = 16;
+    read_config();
     NN::training_essentials gradientsandmore(hopeless);
     NN::network_gradient past_grad(hopeless);
     NN::network_gradient current_grad(hopeless);
     omp_set_num_threads(threads);
-    int epochs;
-    float mal_r;
-    float mil_r;
-    int period;
+    /*
     std::cout<<"number of parameters in model:"<<hopeless.parameter_count()<<std::endl;
     std::cout<<"number of epochs"<<std::endl;
     std::cin>>epochs;
@@ -286,21 +352,26 @@ int main(){
     std::cout<<"minimum learning rate"<<std::endl;
     std::cin>>mil_r;
     std::cout<<"cosine annealing period"<<std::endl;
-    std::cin>>period;
+    std::cin>>period;*/
+    sample_acc(gradientsandmore);
     int epc = 0;        
     int t_set_itr = 0;  
     long long count = 0;
     float epochloss = 0;
     hopeless.weight_index_sort();
+    std::cout<<"number of parameters in model:"<<hopeless.parameter_count()<<std::endl;
+    //std::cout<<"no of neuron_units"<<hopeless.neural_net.size()<<std::endl;
+    //hopeless.parameter_count();
     while(epc < epochs)
     {
+        epc++;
         float l_r = cosine_anneal_lr(epc,period,mil_r,mal_r);
         shuffle_tr_data();
         std::cout<<"Progress for this epoch..."<<std::flush;
         t_set_itr = 0;
         epochloss = 0;
         while(t_set_itr < 40000)
-        {       
+        {     
             for (int i = 0; i < batch_size; i++)
             {
                 int msg = t_set_itr + i;
@@ -343,28 +414,32 @@ int main(){
                     }
                 }     
             }
-            count++;
-            past_grad.sgd_with_momentum(hopeless,l_r /* 1.0f/(std::sqrt(batch_size))*/,0.95,current_grad,count);
+            past_grad.sgd_with_nesterov(hopeless,l_r,0.95,current_grad);
             if((t_set_itr % (batch_size*10))==0){
-                std::cout<<"\r                                                                                            ";
-                std::cout<<"\rProgress for this epoch[";
+                std::cout<<"\r                                                                                                          ";
+                std::cout<<"\rEpoch "<<epc<<" Progress[";
                 float progresspercent =100 * t_set_itr/40000;  
-                std::cout<<progresspercent<<"%]"<<", learning rate:"<<l_r<<", average loss:"<<epochloss/(t_set_itr+batch_size);
+                std::cout<<progresspercent<<"%]"<<", lr:"<<l_r<<", avg loss:"<<epochloss/(t_set_itr+batch_size)<<", avg entrophy:"<<avg_entrophy/(t_set_itr+batch_size);
+                std::cout<<std::flush;
             }
             t_set_itr += batch_size;
         }
+        avg_entrophy = 0;
         std::cout<<"\r                                                                                                                    "<<std::endl;
         std::cout<<std::endl;
-        std::cout<<"epoch "<< epc + 1 <<" out of "<< epochs << " complete"<<std::endl;
+        std::cout<<"epoch "<< epc <<" out of "<< epochs << " complete"<<std::endl;
         std::cout<<std::flush;
         std::cout<<"total cross entrophy loss "<<epochloss<<", learning rate:"<<l_r<<std::endl;
-        if (epc % 10 == 9)
+        if ((epc % 10 == 0)&&(epc!=0))
         {
-            std::string s = std::to_string(epc+1);
+            std::string s = std::to_string(epc);
             hopeless.save_to_txt("checkpoint"+s+".txt");
+            //sample_acc(gradientsandmore);
+        }
+        if ((epc % 5 == 0)&&(epc!=0))
+        {
             sample_acc(gradientsandmore);
         }
-        epc++;
         std::cout<<std::endl;
         hopeless.save_to_txt("dump.txt");
         //past_grad.valclear();
@@ -389,7 +464,7 @@ int main(){
         }
         else{
             std::cout<<"ERROR, enter y or n"<<std::endl;
-            Sleep(150); //in case you hold onto a key and this message fills the terminal
+            //Sleep(150); //in case you hold onto a key and this message fills the terminal
         }
     }
     return 0;
