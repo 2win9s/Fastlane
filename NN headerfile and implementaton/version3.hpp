@@ -195,16 +195,16 @@ inline float drelu(float fx){
 // it may be useful to utilise log space 
 // so this function is simply ln(relu(x)+1)
 inline float log_relu(float x){
-    return std::logf((x>0.0f) ? (x+1.0f):1.0f);
+    return std::log((x>0.0f) ? (x+1.0f):1.0f);
 }
 inline float dlog_relu(float fx){
-    return ((fx>0.0f) ? std::expf(-fx):0.0f);
+    return ((fx>0.0f) ? std::exp(-fx):0.0f);
 }
 
 // function to compute cos(x) from sin(x)
 // i.e. the derivative of sin(x) activation function
 inline float cos_sinx(float sinx){
-    return std::sqrtf(1 - (sinx*sinx));
+    return std::sqrt(1 - (sinx*sinx));
 }
 
 bool broken_float(float x){
@@ -452,7 +452,7 @@ struct neuron_unit
 
     // wrapper function for sine and cos(arcsin(x))
     inline float act_func(float x, sine_neuron){
-        return std::sinf(x);
+        return std::sin(x);
     }
     inline float dact_func(float fx, sine_neuron){
         return cos_sinx(fx);
@@ -1285,11 +1285,10 @@ struct NN
             }
         }
         inline void component_norm_clip(float neuron_unit_max, float weight_max){
-            double gradient_l2_norm = 0;
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < net_grads.size(); i++)
             {
-                gradient_l2_norm = 0;
+                double gradient_l2_norm = 0;
                 //#pragma omp simd
                 for (int j = 0; j < 16; j++)
                 {
@@ -1327,7 +1326,7 @@ struct NN
             #pragma omp parallel for schedule(static)
             for (int i = 0; i < weight_gradients.size(); i++)
             {
-                gradient_l2_norm = 0;
+                double gradient_l2_norm = 0;
                 //#pragma omp simd
                 for (int j = 0; j < weight_gradients[i].size(); j++)
                 {
@@ -1523,12 +1522,15 @@ struct NN
     }
 
     NN(int size, std::vector<int> input_neurons, std::vector<int> output_neurons, float connection_density, float connection_sd, int min_layer_size = 1, int connection_radius = -1)
-    :neural_net(size,neuron_unit())
+    :neural_net(size)
     ,input_index(input_neurons)
     ,output_index(output_neurons)
     ,weights(size)
     ,recurrent_connection(3,0)
     {
+        for(int i = 0 ; i < size; i++){
+            neural_net[i] = neuron_unit();
+        }
         std::normal_distribution<float> connection_dist(connection_density, connection_sd);
         for (int i = 0; i < input_index.size(); i++)
         {
@@ -1617,7 +1619,7 @@ struct NN
     }
 
     inline void valclear(){
-        #pragma omp for schedule(static)
+        #pragma omp parallel for schedule(static)
         for (int i = 0; i < neural_net.size(); i++)
         {
             neural_net[i].valclear();
@@ -1640,10 +1642,7 @@ struct NN
         state(int size)
         : values(size)
         {
-            #pragma omp parallel
-            {
-                valclear();
-            }
+            valclear();
         }
     };
     // post for post activation values
@@ -1661,9 +1660,49 @@ struct NN
     //from now pre refers to pre Re:Zero and Post past_unit
     //zeros out values for consistency
     
+    //for inference so only pass previous state
+    template<typename T>
+    inline void inf_forward_pass(T &inputs,  std::vector<float> & tminus_1){
+        #pragma omp parallel
+        {
+                //std::vector<float> temp(max_input_dim);
+            #pragma omp for schedule(static,4)
+            for (int i = 0; i < input_index.size(); i++)
+            {
+                neural_net[input_index[i]].units[0] = inputs[i];
+            }
+            connect_recurrent(states,tstep);
+            for (int i = 0; i < layermap.size(); i++)
+            {
+                #pragma omp for schedule(dynamic,16)
+                for (int j = 0; j < layermap[i].size(); j++)
+                {   
+                    neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput!=0) ? neural_net[layermap[i][j]].units[0]:0.0f;
+                    /*
+                    for (int l = 0; l < weights[layermap[i][j]].size(); l++)
+                    {    
+                        temp[l] = states(tstep,weights[layermap[i][j]][l].x);
+                    }
+                    */
+                    ////#pragma omp simd
+                    for (int l = 0; l < weights[layermap[i][j]].size(); l++)
+                    {               
+                        neural_net[layermap[i][j]].units[0] += weights[layermap[i][j]][l].y * tminus_1[weights[layermap[i][j]][l].x];
+                    }
+                    neural_net[layermap[i][j]].forward_pass(tminus_1[layermap[i][j]]);
+                }
+                #pragma omp for schedule(static,16)
+                for(int j = 0; j < layermap[i].size();j++){
+                    tminus_1[layermap[i][j]] = neural_net[layermap[i][j]].units[15];
+                }
+            }
+        }
+        return;
+    }
+
     // performant code is ugly code, horrible code duplication with switch to avoid inner loop if statement
     template<typename T>
-    inline void forward_pass(T &inputs, state &post, vec_of_arr<float> & states,unsigned int tstep){
+    inline void forward_pass(T &inputs, state &post, vec_of_arr<float> & states,int tstep){
         if(tstep==0)
         {
             #pragma omp parallel
@@ -1684,7 +1723,7 @@ struct NN
                         {    
                             temp[l] = states(tstep,weights[layermap[i][j]][l].x);
                         }*/
-                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput==1 ) ? neural_net[layermap[i][j]].units[0]:0.0f;
+                        neural_net[layermap[i][j]].units[0] = (neural_net[layermap[i][j]].isinput==1) ? neural_net[layermap[i][j]].units[0]:0.0f;
                         ////#pragma omp simd
                         for (int l = 0; l < weights[layermap[i][j]].size(); l++)
                         {               
@@ -1930,20 +1969,6 @@ struct NN
         file << "<end>" << "\n";
         file.close();
     }
-    void cut_recurrent(){
-        weight_index_sort();
-        for (int i = 0; i < weights.size(); i++)
-        {
-            for (int j = 0; j < weights[i].size(); j++)
-            {
-                if (weights[i][j].x > i)
-                {
-                    weights[i].resize(j,int_float(0,0));
-                    break;
-                }   
-            }   
-        }
-    }
 
     NN(std::string file_name){
         std::string str_data;
@@ -2052,7 +2077,6 @@ struct NN
         }
         itr = 0;
         while (true)
-
         {
             std::string data;
             file >> data;
@@ -2109,6 +2133,21 @@ struct NN
         update_max_sizes();
     }
 
+
+    void cut_recurrent(){
+        weight_index_sort();
+        for (int i = 0; i < weights.size(); i++)
+        {
+            for (int j = 0; j < weights[i].size(); j++)
+            {
+                if (weights[i][j].x > i)
+                {
+                    weights[i].resize(j,int_float(0,0));
+                    break;
+                }   
+            }   
+        }
+    }
     // returns true if inputs can appect every output of current timestep
     // false otherwise
     bool connection_check(){
@@ -2170,7 +2209,6 @@ struct NN
     // returns number of trainable parameters
     int parameter_count(){
         int count = 0;
-        #pragma omp parallel for
         for (int i = 0; i < weights.size(); i++)
         {
             count += weights[i].size();
