@@ -16,6 +16,7 @@
 #include<sstream>
 #include<deque>
 #include<cstring>
+#include <map>
 ///#include<windows.h>
 
 
@@ -32,17 +33,30 @@ std::uniform_int_distribution<int> randval(40000,50000); //this is the validatio
 std::vector<std::vector<std::array<float,383>>> encoded_input(60000);
 std::vector<std::vector<float>> encoded_target(60000,{0,0,0});
 std::array<float,383> blank_input = {0};
+std::array<float,383> typo_holder = {0};
 const int thinktime=5;
 
 
 float avg_entrophy = 0;
 
 int threads = 12;
-int epochs;
+int epochs = 100;
 int batch_size = 64;
 float mal_r;
 float mil_r;
 int period;
+
+
+// typos to create synthetic data for training
+float mistake_rate = 0.5;
+int min_length = 9;
+float remove_character = 0.5;
+float extra_space = 0.5;
+float swap_adjacent = 0.5;
+float replace_letter = 0.5;
+std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+std::string capital_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+float capitalise_rate = 0.5;
 
 void template_config_create(){
     std::ofstream config("config.txt",std::fstream::trunc);
@@ -180,6 +194,120 @@ void encode(){
     }
 }
 
+void add_typos(){
+    #pragma omp parallel
+    {
+        std::random_device wedewojdoiewdjiw;                          
+        std::mt19937 wwwwww(wedewojdoiewdjiw());
+        #pragma omp for
+        for(int i = 0 ; i < 40000; i++){
+            std::uniform_real_distribution<float> rng(0,1);
+            float randno = rng(wwwwww);
+            if((randno < mistake_rate) &&(inputdata[i].length() > min_length)){
+                std::string message = inputdata[i];
+                randno = rng(wwwwww);
+                if(randno < remove_character){
+                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                    int pos = rand_char(wwwwww);
+                    message.erase(message.begin()+pos);
+                }
+                randno = rng(wwwwww);
+                if(randno < extra_space){
+                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                    unsigned int pos = rand_char(wwwwww);
+                    //std::string space = " ";
+                    message.insert(message.begin()+pos, ' ');
+                }
+                randno = rng(wwwwww);
+                if(randno < swap_adjacent){
+                    std::uniform_int_distribution<int> rand_char(0,message.length()-2);
+                    int swappos = rand_char(wwwwww);
+                    std::swap(message[swappos],message[swappos+1]);
+                }
+                randno = rng(wwwwww);
+                if(randno < replace_letter){
+                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                    int pos = rand_char(wwwwww);
+                    std::uniform_int_distribution<int> rand_letter(0,alphabet.length()-1);
+                    int letter_ind = rand_letter(wwwwww);
+                    message[pos] = alphabet[letter_ind];
+                }
+                randno = rng(wwwwww);
+                if(randno < capitalise_rate){
+                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                    int pos = rand_char(wwwwww);
+                    for(int k = 0; k < alphabet.length();k++){
+                        if(message[k] == alphabet[k]){
+                            message[k] = capital_alphabet[k];
+                            break;
+                        }
+                    }
+                }
+                int len = 0;
+                if ((message.length()  % 4) == 0)
+                {
+                    len = std::floor(message.length() / 4);
+                }
+                else{
+                    len = std::floor(message.length() / 4) + 1;
+                }
+                encoded_input[i].resize(len);
+                for (int j = 0; j < len; j++)
+                {
+                    #pragma omp simd
+                    for (int k = 0; k < 383; k++)
+                    {
+                        encoded_input[i][j][k] = 0;
+                    }
+                }
+                int msgind = 0;
+                for (int j = 0; j < message.length(); j+=4)
+                {
+                    //just tiling the loop, we read 4 characters at a time
+                    for (int k = j; k < (((j + 4) < message.length()) ? (j + 4):message.length()); k++)
+                    {
+                        std::string chra = "";
+                        chra += message[k];
+                        encoded_input[i][msgind][input_convert(chra) + ((k%4)*95)] = 1;
+                    }
+                    msgind ++;
+                }
+            }
+            else{
+                int len = 0;
+                if ((inputdata[i].length()  % 4) == 0)
+                {
+                    len = std::floor(inputdata[i].length() / 4);
+                }
+                else{
+                    len = std::floor(inputdata[i].length() / 4) + 1;
+                }
+                encoded_input[i].resize(len);
+                for (int j = 0; j < len; j++)
+                {
+                    #pragma omp simd
+                    for (int k = 0; k < 383; k++)
+                    {
+                        encoded_input[i][j][k] = 0;
+                    }
+                }
+                int msgind = 0;
+                for (int j = 0; j < inputdata[i].length(); j+=4)
+                {
+                    //just tiling the loop, we read 4 characters at a time
+                    for (int k = j; k < (((j + 4) < inputdata[i].length()) ? (j + 4):inputdata[i].length()); k++)
+                    {
+                        std::string chra = "";
+                        chra += inputdata[i][k];
+                        encoded_input[i][msgind][input_convert(chra) + ((k%4)*95)] = 1;
+                    }
+                    msgind ++;
+                }
+            }
+        }
+    }
+}
+
 void shuffle_tr_data(){
     std::uniform_int_distribution<int> rint(0,39998);
     std::random_device rd;                          
@@ -222,7 +350,7 @@ int_float acc_iteration(int textindex, NN::training_essentials &helper){
             output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
         }
         soft_max(output);
-        if ((*std::max_element(output.begin(),output.end())>0.95f)||(fpasscount==(helper.dloss.vec_size-1)))
+        if ((fpasscount==(helper.dloss.vec_size-1)))
         {
             if (encoded_target[textindex][prediction(output)]==1)
             {
@@ -257,67 +385,67 @@ void sample_acc(NN::training_essentials &helper){
 float tr_iteration(int textindex, NN::training_essentials &helper){
     int len;
     float loss; 
-    helper.resize(encoded_input[textindex].size()+thinktime);   
+    helper.resize(encoded_input[textindex].size()+thinktime+1);   
     int fpasscount = 0;
     std::vector<float> output(3,0);
     for(int j = 0; j < 3; j++){
         output[j] = 0;
     }
     soft_max(output);
-    for (int i = 0; i < encoded_input[textindex].size(); i++)
-    {
-        for(int j = 0; j < 3; j++){
-            encoded_input[textindex][i][380+j]=output[j];
-        }
-        hopeless.forward_pass(encoded_input[textindex][i],helper.post[fpasscount],helper.states,fpasscount);
-        for(int j = 0; j < 3; j++){
-            output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
-        }
-        soft_max(output);
-        fpasscount++;   
-    }
-    while(true)
-    {
-        std::vector<float> losso(3);
-        for(int j = 0; j < 3; j++){
-            blank_input[380+j]=output[j];
-        }
-        hopeless.forward_pass(blank_input,helper.post[fpasscount],helper.states,fpasscount);
-        for(int j = 0; j < 3; j++){
-            output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
-        }
-        soft_max(output);
-        dsoft_max(output,encoded_target[textindex],losso);
-        for (int j = 0; j < 3; j++)
+        for (int i = 0; i < encoded_input[textindex].size(); i++)
         {
-            helper.dloss(fpasscount,j)=(std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15])<40) ? losso[j]:sign_of(hopeless.neural_net[hopeless.output_index[j]].units[15]) * (std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15]) - 40);   
+            for(int j = 0; j < 3; j++){
+                encoded_input[textindex][i][380+j]=output[j];
+            }
+            hopeless.forward_pass(encoded_input[textindex][i],helper.post[fpasscount],helper.states,fpasscount);
+            for(int j = 0; j < 3; j++){
+                output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
+            }
+            soft_max(output);
+            fpasscount++;   
         }
-        if (fpasscount==(helper.dloss.vec_size-1))
+        while(true)
         {
-            /*
-                std::cout<<std::endl;
-                for(int j = 0; j < 3; j++){
-                    std::cout<<encoded_target[textindex][j]<<",";
-                }
-                std::cout<<std::endl;
-                for(int j = 0; j < 3; j++){
-                    std::cout<<hopeless.neural_net[hopeless.output_index[j]].units[15]<<",";
-                }
-                std::cout<<std::endl;
-                for(int j = 0; j < 3; j++){
-                    std::cout<<output[j]<<",";
-                }
-                std::cout<<std::endl;*/
-            loss = cross_entrophy_loss(encoded_target[textindex],output);
-            avg_entrophy += pmf_entrophy(output);
-            helper.resize(fpasscount+1);
-            hopeless.bptt(helper.dloss,helper.post,helper.f,helper.states,helper.gradients);
-            break;
+            std::vector<float> losso(3);
+            for(int j = 0; j < 3; j++){
+                blank_input[380+j]=output[j];
+            }
+            hopeless.forward_pass(blank_input,helper.post[fpasscount],helper.states,fpasscount);
+            for(int j = 0; j < 3; j++){
+                output[j] = hopeless.neural_net[hopeless.output_index[j]].units[15];
+            }
+            soft_max(output);
+            dsoft_max(output,encoded_target[textindex],losso);
+            for (int j = 0; j < 3; j++)
+            {
+                helper.dloss(fpasscount,j)=(std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15])<40) ? losso[j]:sign_of(hopeless.neural_net[hopeless.output_index[j]].units[15]) * (std::abs(hopeless.neural_net[hopeless.output_index[j]].units[15]) - 40);   
+            }
+            if (fpasscount==(helper.dloss.vec_size-1))
+            {
+                /*
+                    std::cout<<std::endl;
+                    for(int j = 0; j < 3; j++){
+                        std::cout<<encoded_target[textindex][j]<<",";
+                    }
+                    std::cout<<std::endl;
+                    for(int j = 0; j < 3; j++){
+                        std::cout<<hopeless.neural_net[hopeless.output_index[j]].units[15]<<",";
+                    }
+                    std::cout<<std::endl;
+                    for(int j = 0; j < 3; j++){
+                        std::cout<<output[j]<<",";
+                    }
+                    std::cout<<std::endl;*/
+                loss = cross_entrophy_loss(encoded_target[textindex],output);
+                avg_entrophy += pmf_entrophy(output);
+                helper.resize(fpasscount+1);
+                hopeless.bptt(helper.dloss,helper.post,helper.f,helper.states,helper.gradients);
+                break;
+            }
+            fpasscount++;
         }
-        fpasscount++;
-    }
-    helper.f.global_norm_clip(690.0f);
-    return loss;
+        helper.f.global_norm_clip(6969.0f);
+        return loss;
 }
 
 float cosine_anneal_lr(int epoch, int period, float minlr, float maxlr){
@@ -367,6 +495,7 @@ int main(){
         epc++;
         float l_r = cosine_anneal_lr(epc,period,mil_r,mal_r);
         shuffle_tr_data();
+        //add_typos();
         std::cout<<"Progress for this epoch..."<<std::flush;
         t_set_itr = 0;
         epochloss = 0;
