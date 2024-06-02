@@ -36,7 +36,6 @@ std::array<float,383> blank_input = {0};
 std::array<float,383> typo_holder = {0};
 const int thinktime=5;
 
-
 float avg_entrophy = 0;
 
 int threads = 12;
@@ -48,13 +47,19 @@ int period;
 
 
 // typos to create synthetic data for training
-float mistake_rate = 0.5;
-int min_length = 9;
+float mistake_rate = 0.99;
+int min_length = 7;             /*the minimum length for typos to be added*/
+
+float rand_string_min_length = 1; 
+float rand_string_max_length = 5;
+
 float remove_character = 0.5;
 float extra_space = 0.5;
 float swap_adjacent = 0.5;
 float replace_letter = 0.5;
 std::string alphabet = "abcdefghijklmnopqrstuvwxyz";
+std::string symbols = " !\"#$%&\'()*+,-./:;<=>?@[\\]^_`{|}~";
+std:: string numbers = "0123456789";
 std::string capital_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 float capitalise_rate = 0.5;
 
@@ -194,6 +199,42 @@ void encode(){
     }
 }
 
+
+std::string rand_string_generator(std::mt19937 & wwwwww){
+    std::string randstring("");
+    std::uniform_int_distribution<int> a(rand_string_min_length,rand_string_max_length);
+    std::uniform_real_distribution<float> b(0,1);
+    int length = a(wwwwww);
+    float rand_string_type = b(wwwwww);
+    if(rand_string_type > 0.5){            // random letter string
+        std::uniform_int_distribution<int> rand_letter(0,51);
+        for(int i = 0; i < length; i++){
+            int letter = rand_letter(wwwwww);
+            if(letter >= 26){
+                randstring += capital_alphabet[letter - 26];
+            }
+            else{
+                randstring += alphabet[letter];
+            }
+        }
+    }
+    else if (rand_string_type > 0.2){      // random symbol string
+        std::uniform_int_distribution<int> rand_sym(0,symbols.length()-1);
+        for(int i = 0 ; i < length ; i++){
+            int rsymbol = rand_sym(wwwwww);
+            randstring+=symbols[rsymbol];
+        }
+    }
+    else{                   // random number string
+        std::uniform_int_distribution<int> randno(0,numbers.length()-1);
+        for(int i = 0; i <length; i++){
+            int rno = randno(wwwwww);
+            randstring+= numbers[rno];
+        }
+    }
+    return randstring;
+}
+
 void add_typos(){
     #pragma omp parallel
     {
@@ -203,46 +244,51 @@ void add_typos(){
         for(int i = 0 ; i < 40000; i++){
             std::uniform_real_distribution<float> rng(0,1);
             float randno = rng(wwwwww);
-            if((randno < mistake_rate) &&(inputdata[i].length() > min_length)){
-                std::string message = inputdata[i];
-                randno = rng(wwwwww);
-                if(randno < remove_character){
-                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
-                    int pos = rand_char(wwwwww);
-                    message.erase(message.begin()+pos);
-                }
-                randno = rng(wwwwww);
-                if(randno < extra_space){
-                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
-                    unsigned int pos = rand_char(wwwwww);
-                    //std::string space = " ";
-                    message.insert(message.begin()+pos, ' ');
-                }
-                randno = rng(wwwwww);
-                if(randno < swap_adjacent){
-                    std::uniform_int_distribution<int> rand_char(0,message.length()-2);
-                    int swappos = rand_char(wwwwww);
-                    std::swap(message[swappos],message[swappos+1]);
-                }
-                randno = rng(wwwwww);
-                if(randno < replace_letter){
-                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
-                    int pos = rand_char(wwwwww);
-                    std::uniform_int_distribution<int> rand_letter(0,alphabet.length()-1);
-                    int letter_ind = rand_letter(wwwwww);
-                    message[pos] = alphabet[letter_ind];
-                }
-                randno = rng(wwwwww);
-                if(randno < capitalise_rate){
-                    std::uniform_int_distribution<int> rand_char(0,message.length()-1);
-                    int pos = rand_char(wwwwww);
-                    for(int k = 0; k < alphabet.length();k++){
-                        if(message[k] == alphabet[k]){
-                            message[k] = capital_alphabet[k];
-                            break;
+            std::string message = inputdata[i];
+            if((randno < mistake_rate)){
+                if(inputdata[i].length() > min_length){
+                    randno = rng(wwwwww);
+                    if(randno < remove_character){
+                        std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                        int pos = rand_char(wwwwww);
+                        message.erase(message.begin()+pos);
+                    }
+                    randno = rng(wwwwww);
+                    if(randno < extra_space){
+                        std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                        unsigned int pos = rand_char(wwwwww);
+                        //std::string space = " ";
+                        message.insert(pos, " ");
+                    }
+                    randno = rng(wwwwww);
+                    if(randno < swap_adjacent){
+                        std::uniform_int_distribution<int> rand_char(0,message.length()-2);
+                        int swappos = rand_char(wwwwww);
+                        std::swap(message[swappos],message[swappos+1]);
+                    }
+                    randno = rng(wwwwww);
+                    if(randno < replace_letter){
+                        std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                        int pos = rand_char(wwwwww);
+                        std::uniform_int_distribution<int> rand_letter(0,alphabet.length()-1);
+                        int letter_ind = rand_letter(wwwwww);
+                        message[pos] = alphabet[letter_ind];
+                    }
+                    randno = rng(wwwwww);
+                    if(randno < capitalise_rate){
+                        std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                        int pos = rand_char(wwwwww);
+                        for(int k = 0; k < alphabet.length();k++){
+                            if(message[k] == alphabet[k]){
+                                message[k] = capital_alphabet[k];
+                                break;
+                            }
                         }
                     }
                 }
+                std::uniform_int_distribution<int> rand_char(0,message.length()-1);
+                int pos = rand_char(wwwwww);
+                message.insert(pos, rand_string_generator(wwwwww));
                 int len = 0;
                 if ((message.length()  % 4) == 0)
                 {
@@ -422,7 +468,7 @@ float tr_iteration(int textindex, NN::training_essentials &helper){
             }
             if (fpasscount==(helper.dloss.vec_size-1))
             {
-                /*
+                    /*
                     std::cout<<std::endl;
                     for(int j = 0; j < 3; j++){
                         std::cout<<encoded_target[textindex][j]<<",";
@@ -481,7 +527,7 @@ int main(){
     std::cin>>mil_r;
     std::cout<<"cosine annealing period"<<std::endl;
     std::cin>>period;*/
-    sample_acc(gradientsandmore);
+    //sample_acc(gradientsandmore);
     int epc = 0;        
     int t_set_itr = 0;  
     long long count = 0;
