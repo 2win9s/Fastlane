@@ -201,7 +201,7 @@ void encode(){
 
 
 std::string rand_string_generator(std::mt19937 & wwwwww){
-    std::string randstring("");
+    std::string randstring="";
     std::uniform_int_distribution<int> a(rand_string_min_length,rand_string_max_length);
     std::uniform_real_distribution<float> b(0,1);
     int length = a(wwwwww);
@@ -242,6 +242,9 @@ void add_typos(){
         std::mt19937 wwwwww(wedewojdoiewdjiw());
         #pragma omp for
         for(int i = 0 ; i < 40000; i++){
+            if(inputdata[i].length()==0){
+                continue;
+            }
             std::uniform_real_distribution<float> rng(0,1);
             float randno = rng(wwwwww);
             std::string message = inputdata[i];
@@ -286,9 +289,11 @@ void add_typos(){
                         }
                     }
                 }
-                std::uniform_int_distribution<int> rand_char(0,message.length()-1);
-                int pos = rand_char(wwwwww);
-                message.insert(pos, rand_string_generator(wwwwww));
+                if(message.length() > 0){
+                    std::uniform_int_distribution<int> rand_place(0,message.length()-1);
+                    int pos = rand_place(wwwwww);
+                    message.insert(pos, rand_string_generator(wwwwww));
+                }
                 int len = 0;
                 if ((message.length()  % 4) == 0)
                 {
