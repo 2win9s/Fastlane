@@ -47,10 +47,10 @@ int period;
 
 
 // typos to create synthetic data for training
-float mistake_rate = 0.99;
+float mistake_rate = 0.75;
 int min_length = 7;             /*the minimum length for typos to be added*/
 
-float rand_string_min_length = 1; 
+float rand_string_min_length = 2; 
 float rand_string_max_length = 5;
 
 float remove_character = 0.5;
@@ -490,7 +490,7 @@ float tr_iteration(int textindex, NN::training_essentials &helper){
             }
             fpasscount++;
         }
-        helper.f.global_norm_clip(6969.0f);
+        helper.f.global_norm_clip(690.0f);
         return loss;
 }
 
@@ -541,7 +541,7 @@ int main(){
         epc++;
         float l_r = cosine_anneal_lr(epc,period,mil_r,mal_r);
         shuffle_tr_data();
-        //add_typos();
+        add_typos();
         std::cout<<"Progress for this epoch..."<<std::flush;
         t_set_itr = 0;
         epochloss = 0;
